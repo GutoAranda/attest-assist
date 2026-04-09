@@ -14,13 +14,467 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      area_conclusions: {
+        Row: {
+          area_id: string
+          concluded_at: string
+          concluded_by: string
+          id: string
+          solicitation_id: string
+        }
+        Insert: {
+          area_id: string
+          concluded_at?: string
+          concluded_by: string
+          id?: string
+          solicitation_id: string
+        }
+        Update: {
+          area_id?: string
+          concluded_at?: string
+          concluded_by?: string
+          id?: string
+          solicitation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "area_conclusions_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "area_conclusions_concluded_by_fkey"
+            columns: ["concluded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "area_conclusions_solicitation_id_fkey"
+            columns: ["solicitation_id"]
+            isOneToOne: false
+            referencedRelation: "solicitations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      areas: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      attachments: {
+        Row: {
+          document_id: string | null
+          file_name: string
+          file_url: string
+          id: string
+          solicitation_id: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          document_id?: string | null
+          file_name: string
+          file_url: string
+          id?: string
+          solicitation_id: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          document_id?: string | null
+          file_name?: string
+          file_url?: string
+          id?: string
+          solicitation_id?: string
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachments_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachments_solicitation_id_fkey"
+            columns: ["solicitation_id"]
+            isOneToOne: false
+            referencedRelation: "solicitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachments_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_logs: {
+        Row: {
+          action: string
+          created_at: string
+          details: string | null
+          id: string
+          solicitation_id: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: string | null
+          id?: string
+          solicitation_id: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: string | null
+          id?: string
+          solicitation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_solicitation_id_fkey"
+            columns: ["solicitation_id"]
+            isOneToOne: false
+            referencedRelation: "solicitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      comments: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          solicitation_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          solicitation_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          solicitation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comments_solicitation_id_fkey"
+            columns: ["solicitation_id"]
+            isOneToOne: false
+            referencedRelation: "solicitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documents: {
+        Row: {
+          created_at: string
+          document_name: string
+          file_url: string | null
+          id: string
+          observations: string | null
+          responsible_area_id: string
+          revision_reason: string | null
+          solicitation_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          document_name: string
+          file_url?: string | null
+          id?: string
+          observations?: string | null
+          responsible_area_id: string
+          revision_reason?: string | null
+          solicitation_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          document_name?: string
+          file_url?: string | null
+          id?: string
+          observations?: string | null
+          responsible_area_id?: string
+          revision_reason?: string | null
+          solicitation_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_responsible_area_id_fkey"
+            columns: ["responsible_area_id"]
+            isOneToOne: false
+            referencedRelation: "areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_solicitation_id_fkey"
+            columns: ["solicitation_id"]
+            isOneToOne: false
+            referencedRelation: "solicitations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          read: boolean
+          solicitation_id: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          read?: boolean
+          solicitation_id?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          read?: boolean
+          solicitation_id?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_solicitation_id_fkey"
+            columns: ["solicitation_id"]
+            isOneToOne: false
+            referencedRelation: "solicitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      operations: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          is_active: boolean
+          is_admin: boolean
+          name: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          is_active?: boolean
+          is_admin?: boolean
+          name: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          is_active?: boolean
+          is_admin?: boolean
+          name?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      solicitations: {
+        Row: {
+          cancel_reason: string | null
+          concluded_at: string | null
+          created_at: string
+          deadline: string | null
+          employee_name: string | null
+          id: string
+          observations: string | null
+          operation_id: string
+          process_number: string | null
+          requester_id: string
+          status: string
+          ticket_id: string | null
+        }
+        Insert: {
+          cancel_reason?: string | null
+          concluded_at?: string | null
+          created_at?: string
+          deadline?: string | null
+          employee_name?: string | null
+          id?: string
+          observations?: string | null
+          operation_id: string
+          process_number?: string | null
+          requester_id: string
+          status?: string
+          ticket_id?: string | null
+        }
+        Update: {
+          cancel_reason?: string | null
+          concluded_at?: string | null
+          created_at?: string
+          deadline?: string | null
+          employee_name?: string | null
+          id?: string
+          observations?: string | null
+          operation_id?: string
+          process_number?: string | null
+          requester_id?: string
+          status?: string
+          ticket_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "solicitations_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "operations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "solicitations_requester_id_fkey"
+            columns: ["requester_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_group_assignments: {
+        Row: {
+          area_id: string
+          id: string
+          operation_id: string
+          user_id: string
+        }
+        Insert: {
+          area_id: string
+          id?: string
+          operation_id: string
+          user_id: string
+        }
+        Update: {
+          area_id?: string
+          id?: string
+          operation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_group_assignments_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_group_assignments_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "operations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_group_assignments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_my_profile_id: { Args: never; Returns: string }
+      is_admin: { Args: never; Returns: boolean }
+      is_juridico: { Args: never; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
