@@ -6,12 +6,11 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, DocStatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
-import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download } from 'lucide-react';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
 const DetalheTicketJuridico = () => {
   const { id } = useParams();
@@ -52,7 +51,7 @@ const DetalheTicketJuridico = () => {
   const { data: attachments = [] } = useQuery({
     queryKey: ['attachments', id],
     queryFn: async () => {
-      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).order('uploaded_at');
+      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).is('document_id', null).order('uploaded_at');
       return data || [];
     },
   });
@@ -81,10 +80,33 @@ const DetalheTicketJuridico = () => {
     },
   });
 
+  // Group documents by area
+  const groupedDocs = useMemo(() => {
+    const groups: Record<string, { areaName: string; docs: any[] }> = {};
+    documents.forEach((doc: any) => {
+      const areaId = doc.responsible_area_id;
+      const areaName = (doc.areas as any)?.name || 'Sem área';
+      if (!groups[areaId]) groups[areaId] = { areaName, docs: [] };
+      groups[areaId].docs.push(doc);
+    });
+    return groups;
+  }, [documents]);
+
   const sendComment = async () => {
     if (!comment.trim() || !profile) return;
     await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
     await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
+    // Notify atendentes involved
+    const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
+    if (solicitation) {
+      const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
+      const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
+      for (const userId of uniqueUsers) {
+        if (userId !== profile.id) {
+          await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
+        }
+      }
+    }
     setComment('');
     queryClient.invalidateQueries({ queryKey: ['comments', id] });
     queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
@@ -94,6 +116,15 @@ const DetalheTicketJuridico = () => {
     if (!cancelReason.trim()) { toast.error('Informe o motivo'); return; }
     await supabase.from('solicitations').update({ status: 'cancelado', cancel_reason: cancelReason }).eq('id', id);
     await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile!.id, action: 'Solicitação cancelada', details: cancelReason });
+    // Notify atendentes
+    const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
+    if (solicitation) {
+      const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
+      const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
+      for (const userId of uniqueUsers) {
+        await supabase.from('notifications').insert({ user_id: userId, type: 'cancelamento', message: `Solicitação ${solicitation.ticket_id} foi cancelada`, solicitation_id: id! });
+      }
+    }
     queryClient.invalidateQueries();
     setCancelDialog(false);
     toast.success('Solicitação cancelada');
@@ -102,18 +133,19 @@ const DetalheTicketJuridico = () => {
   const handleRevision = async () => {
     if (!revisionReason.trim() || !revisionDialog) { toast.error('Informe o motivo'); return; }
     await supabase.from('documents').update({ status: 'revisao_solicitada', revision_reason: revisionReason }).eq('id', revisionDialog);
-
-    // Remove area conclusion if exists
     const doc = documents.find((d: any) => d.id === revisionDialog);
     if (doc) {
       await supabase.from('area_conclusions').delete().eq('solicitation_id', id!).eq('area_id', (doc as any).responsible_area_id);
     }
-
-    // Revert solicitation status
     await supabase.from('solicitations').update({ status: 'em_atendimento', concluded_at: null }).eq('id', id);
-
     await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile!.id, action: 'Revisão solicitada', details: `Documento: ${(doc as any)?.document_name}. Motivo: ${revisionReason}` });
-
+    // Notify atendentes for this area
+    if (doc && solicitation) {
+      const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').eq('area_id', (doc as any).responsible_area_id).eq('operation_id', solicitation.operation_id);
+      for (const a of assignments || []) {
+        await supabase.from('notifications').insert({ user_id: a.user_id, type: 'revisao', message: `Revisão solicitada no documento "${(doc as any).document_name}" do ticket ${solicitation.ticket_id}`, solicitation_id: id! });
+      }
+    }
     queryClient.invalidateQueries();
     setRevisionDialog(null);
     setRevisionReason('');
@@ -126,10 +158,25 @@ const DetalheTicketJuridico = () => {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {/* Header */}
       <Card className="p-6 mb-6">
-        <Button variant="ghost" size="sm" className="mb-4" onClick={() => navigate('/solicitacoes')}>
-          <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
-        </Button>
+        <div className="flex items-center justify-between mb-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/solicitacoes')}>
+            <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
+          </Button>
+          <div className="flex gap-2">
+            {solicitation.status === 'aberto' && (
+              <Button variant="outline" size="sm" onClick={() => navigate(`/nova-solicitacao?editar=${id}`)}>
+                <Edit className="h-4 w-4 mr-1" /> Editar
+              </Button>
+            )}
+            {solicitation.status !== 'cancelado' && solicitation.status !== 'concluido' && (
+              <Button variant="destructive" size="sm" onClick={() => setCancelDialog(true)}>
+                <XCircle className="h-4 w-4 mr-1" /> Cancelar solicitação
+              </Button>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-3 mb-4">
           <h1 className="text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
           <StatusBadge status={solicitation.status as any} />
@@ -143,58 +190,75 @@ const DetalheTicketJuridico = () => {
             {deadlineInfo && <p className={`font-semibold ${deadlineInfo.className}`}>{new Date(solicitation.deadline + 'T00:00:00').toLocaleDateString('pt-BR')} ({deadlineInfo.label})</p>}
           </div>
         </div>
+        {/* Area indicators */}
+        <div className="flex gap-2 mb-4">
+          {Object.entries(groupedDocs).map(([areaId, { areaName }]) => {
+            const concluded = areaConclusions.some((c: any) => c.area_id === areaId);
+            return (
+              <span key={areaId} className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${concluded ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}`}>
+                {areaName}: {concluded ? '✅ Concluído' : '⏳ Pendente'}
+              </span>
+            );
+          })}
+        </div>
         {solicitation.observations && (
-          <div className="bg-accent p-3 rounded text-sm"><strong>Observações:</strong> {solicitation.observations}</div>
+          <div className="bg-[hsl(48,100%,96%)] border-l-4 border-[hsl(48,96%,53%)] p-3 rounded text-sm">
+            <strong>Observações:</strong> {solicitation.observations}
+          </div>
         )}
         {solicitation.cancel_reason && (
-          <div className="bg-danger/10 text-danger p-3 rounded text-sm mt-2"><strong>Motivo do cancelamento:</strong> {solicitation.cancel_reason}</div>
-        )}
-      </Card>
-
-      {/* Documents */}
-      <Card className="p-6 mb-6">
-        <h2 className="text-lg font-semibold text-primary mb-4">Documentos Solicitados</h2>
-        {documents.map((doc: any) => (
-          <div key={doc.id} className="bg-accent rounded-lg p-4 mb-3 border">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="font-semibold">{doc.document_name}</span>
-                <span className="text-muted-foreground text-sm ml-2">({(doc.areas as any)?.name})</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <DocStatusBadge status={doc.status} />
-                {(doc.status === 'enviado' || doc.status === 'inexistente') && solicitation.status !== 'cancelado' && (
-                  <Button variant="ghost" size="sm" className="text-status-revision" onClick={() => setRevisionDialog(doc.id)}>
-                    <RotateCcw className="h-4 w-4 mr-1" /> Solicitar revisão
-                  </Button>
-                )}
-              </div>
-            </div>
-            {doc.observations && <p className="text-sm text-muted-foreground mt-2">{doc.observations}</p>}
-            {doc.file_url && (
-              <a href={doc.file_url} target="_blank" className="text-sm text-info hover:underline mt-1 block">📎 Ver arquivo</a>
-            )}
-            {doc.revision_reason && (
-              <div className="bg-status-revision/10 border-l-4 border-status-revision p-2 mt-2 rounded text-sm">
-                <strong>Motivo da revisão:</strong> {doc.revision_reason}
-              </div>
-            )}
+          <div className="bg-danger/10 text-danger p-3 rounded text-sm mt-2">
+            <strong>Motivo do cancelamento:</strong> {solicitation.cancel_reason}
           </div>
-        ))}
+        )}
       </Card>
 
       {/* Attachments */}
       {attachments.length > 0 && (
         <Card className="p-6 mb-6">
-          <h2 className="text-lg font-semibold text-primary mb-4">Anexos</h2>
+          <h2 className="text-lg font-semibold text-primary mb-4">Anexos da Solicitação</h2>
           {attachments.map((a: any) => (
             <div key={a.id} className="flex items-center gap-2 p-2 border-b">
               <a href={a.file_url} target="_blank" className="text-info hover:underline text-sm flex-1">{a.file_name}</a>
               <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
+              <a href={a.file_url} target="_blank"><Download className="h-4 w-4 text-muted-foreground" /></a>
             </div>
           ))}
         </Card>
       )}
+
+      {/* Documents grouped by area */}
+      {Object.entries(groupedDocs).map(([areaId, { areaName, docs }]) => (
+        <Card key={areaId} className="p-6 mb-6">
+          <h2 className="text-lg font-semibold text-primary mb-4">Documentos — {areaName}</h2>
+          {docs.map((doc: any) => (
+            <div key={doc.id} className="bg-accent rounded-lg p-4 mb-3 border">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">{doc.document_name}</span>
+                <div className="flex items-center gap-2">
+                  <DocStatusBadge status={doc.status} />
+                  {(doc.status === 'enviado' || doc.status === 'inexistente') && solicitation.status !== 'cancelado' && (
+                    <Button variant="ghost" size="sm" className="text-status-revision" onClick={() => setRevisionDialog(doc.id)}>
+                      <RotateCcw className="h-4 w-4 mr-1" /> Solicitar revisão
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {doc.observations && <p className="text-sm text-muted-foreground mt-2">{doc.observations}</p>}
+              {doc.file_url && (
+                <a href={doc.file_url} target="_blank" className="text-sm text-info hover:underline mt-1 inline-flex items-center gap-1">
+                  <Download className="h-3 w-3" /> Ver arquivo
+                </a>
+              )}
+              {doc.revision_reason && (
+                <div className="bg-status-revision/10 border-l-4 border-status-revision p-2 mt-2 rounded text-sm">
+                  <strong>Motivo da revisão:</strong> {doc.revision_reason}
+                </div>
+              )}
+            </div>
+          ))}
+        </Card>
+      ))}
 
       {/* Comments */}
       <Card className="p-6 mb-6">
@@ -203,7 +267,7 @@ const DetalheTicketJuridico = () => {
           {comments.map((c: any) => (
             <div key={c.id} className={`p-3 rounded-lg ${(c.profiles as any)?.role === 'juridico' ? 'bg-info/5' : 'bg-accent'}`}>
               <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span className="font-medium">{(c.profiles as any)?.name}</span>
+                <span className="font-medium">{(c.profiles as any)?.name} ({(c.profiles as any)?.role === 'juridico' ? 'Jurídico' : 'Atendente'})</span>
                 <span>{new Date(c.created_at).toLocaleString('pt-BR')}</span>
               </div>
               <p className="text-sm">{c.message}</p>
@@ -226,7 +290,7 @@ const DetalheTicketJuridico = () => {
         <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
           <CollapsibleTrigger className="flex items-center gap-2 text-lg font-semibold text-primary cursor-pointer">
             <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
-            Histórico ({auditLogs.length})
+            Histórico de Atividades ({auditLogs.length} registros)
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-4 space-y-2">
             {auditLogs.map((log: any) => (
@@ -235,21 +299,13 @@ const DetalheTicketJuridico = () => {
                 <div>
                   <span className="font-medium">{log.action}</span>
                   {log.details && <span className="text-muted-foreground"> — {log.details}</span>}
+                  <span className="text-xs text-muted-foreground ml-2">por {(log.profiles as any)?.name}</span>
                 </div>
               </div>
             ))}
           </CollapsibleContent>
         </Collapsible>
       </Card>
-
-      {/* Actions */}
-      {solicitation.status !== 'cancelado' && solicitation.status !== 'concluido' && (
-        <div className="flex justify-end gap-3">
-          <Button variant="destructive" onClick={() => setCancelDialog(true)}>
-            <XCircle className="h-4 w-4 mr-1" /> Cancelar solicitação
-          </Button>
-        </div>
-      )}
 
       {/* Cancel Dialog */}
       <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
