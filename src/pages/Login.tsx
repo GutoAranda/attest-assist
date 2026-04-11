@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -11,8 +11,20 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn, profile, user } = useAuth();
   const navigate = useNavigate();
+
+  // Redirect after profile loads
+  useEffect(() => {
+    if (profile) {
+      if (!profile.is_active) {
+        toast.error('Seu acesso foi desativado. Contate o administrador.');
+        supabase.auth.signOut();
+        return;
+      }
+      navigate(profile.role === 'juridico' ? '/dashboard' : '/minhas-solicitacoes', { replace: true });
+    }
+  }, [profile, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,10 +36,16 @@ const Login = () => {
     const { error } = await signIn(email, password);
     setLoading(false);
     if (error) {
-      toast.error('Email ou senha incorretos');
+      if (error.message?.includes('Invalid login')) {
+        toast.error('Email ou senha incorretos');
+      } else if (error.message?.includes('Email not confirmed')) {
+        toast.error('Email não confirmado. Verifique sua caixa de entrada.');
+      } else {
+        toast.error(`Erro ao fazer login: ${error.message}`);
+      }
       return;
     }
-    // Redirect is handled by App.tsx based on role
+    // Redirect handled by useEffect above after profile loads
   };
 
   const handleForgotPassword = async () => {

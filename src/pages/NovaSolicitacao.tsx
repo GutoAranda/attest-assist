@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,6 +27,8 @@ const NovaSolicitacao = () => {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get('editar');
 
   const [operationId, setOperationId] = useState('');
   const [processNumber, setProcessNumber] = useState('');
@@ -56,12 +58,33 @@ const NovaSolicitacao = () => {
     },
   });
 
+  // Load existing solicitation for editing
+  useEffect(() => {
+    if (editId) {
+      (async () => {
+        const { data: sol } = await supabase.from('solicitations').select('*').eq('id', editId).single();
+        if (sol) {
+          setOperationId(sol.operation_id);
+          setProcessNumber(sol.process_number || '');
+          setEmployeeName(sol.employee_name || '');
+          setObservations(sol.observations || '');
+          if (sol.deadline) setDeadline(new Date(sol.deadline + 'T00:00:00'));
+        }
+        const { data: docs } = await supabase.from('documents').select('*').eq('solicitation_id', editId);
+        if (docs && docs.length > 0) {
+          setDocuments(docs.map(d => ({ name: d.document_name, area_id: d.responsible_area_id })));
+        }
+      })();
+    }
+  }, [editId]);
+
   const checkDuplicate = async () => {
     if (!processNumber) return;
     const { data } = await supabase
       .from('solicitations')
       .select('ticket_id')
       .eq('process_number', processNumber)
+      .neq('id', editId || '')
       .limit(1);
     if (data && data.length > 0) {
       setDuplicateDialog(data[0].ticket_id!);
@@ -69,12 +92,10 @@ const NovaSolicitacao = () => {
   };
 
   const addDocument = () => setDocuments([...documents, { name: '', area_id: '' }]);
-
   const removeDocument = (idx: number) => {
     if (documents.length <= 1) return;
     setDocuments(documents.filter((_, i) => i !== idx));
   };
-
   const updateDocument = (idx: number, field: keyof DocumentRow, value: string) => {
     const updated = [...documents];
     updated[idx] = { ...updated[idx], [field]: value };
@@ -82,20 +103,9 @@ const NovaSolicitacao = () => {
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setFiles([...files, ...Array.from(e.target.files)]);
-    }
+    if (e.target.files) setFiles([...files, ...Array.from(e.target.files)]);
   };
-
-  const removeFile = (idx: number) => {
-    setFiles(files.filter((_, i) => i !== idx));
-  };
-
-  const generateTicketId = () => {
-    const year = new Date().getFullYear();
-    const seq = Math.floor(Math.random() * 999999).toString().padStart(6, '0');
-    return `#SOL-${year}-${seq}`;
-  };
+  const removeFile = (idx: number) => setFiles(files.filter((_, i) => i !== idx));
 
   const validate = () => {
     if (!operationId) { toast.error('Selecione a operação'); return false; }
@@ -113,48 +123,69 @@ const NovaSolicitacao = () => {
 
     setSaving(true);
     try {
-      const ticketId = asDraft ? null : generateTicketId();
+      // Generate ticket_id using DB function
+      let ticketId: string | null = null;
+      if (!asDraft) {
+        const { data: tid } = await supabase.rpc('generate_ticket_id');
+        ticketId = tid as string;
+      }
       const status = asDraft ? 'rascunho' : 'aberto';
 
-      const { data: sol, error: solErr } = await supabase
-        .from('solicitations')
-        .insert({
-          ticket_id: ticketId,
+      let solId = editId;
+
+      if (editId) {
+        await supabase.from('solicitations').update({
+          ticket_id: ticketId || undefined,
           operation_id: operationId,
           process_number: processNumber || null,
           employee_name: employeeName || null,
-          requester_id: profile.id,
           observations: observations || null,
           status,
           deadline: deadline ? format(deadline, 'yyyy-MM-dd') : null,
-        })
-        .select()
-        .single();
+        }).eq('id', editId);
 
-      if (solErr) throw solErr;
+        // Delete old docs and re-insert
+        await supabase.from('documents').delete().eq('solicitation_id', editId);
+      } else {
+        const { data: sol, error: solErr } = await supabase
+          .from('solicitations')
+          .insert({
+            ticket_id: ticketId,
+            operation_id: operationId,
+            process_number: processNumber || null,
+            employee_name: employeeName || null,
+            requester_id: profile.id,
+            observations: observations || null,
+            status,
+            deadline: deadline ? format(deadline, 'yyyy-MM-dd') : null,
+          })
+          .select()
+          .single();
+        if (solErr) throw solErr;
+        solId = sol.id;
+      }
 
       // Insert documents
       const validDocs = documents.filter(d => d.name);
       if (validDocs.length > 0) {
-        const { error: docErr } = await supabase.from('documents').insert(
+        await supabase.from('documents').insert(
           validDocs.map(d => ({
-            solicitation_id: sol.id,
+            solicitation_id: solId!,
             document_name: d.name,
             responsible_area_id: d.area_id || areas[0]?.id,
             status: 'pendente' as const,
           }))
         );
-        if (docErr) throw docErr;
       }
 
       // Upload attachments
       for (const file of files) {
-        const path = `${sol.id}/${Date.now()}_${file.name}`;
+        const path = `${solId}/${Date.now()}_${file.name}`;
         const { error: upErr } = await supabase.storage.from('solicitations').upload(path, file);
         if (!upErr) {
           const { data: urlData } = supabase.storage.from('solicitations').getPublicUrl(path);
           await supabase.from('attachments').insert({
-            solicitation_id: sol.id,
+            solicitation_id: solId!,
             file_name: file.name,
             file_url: urlData.publicUrl,
             uploaded_by: profile.id,
@@ -162,13 +193,12 @@ const NovaSolicitacao = () => {
         }
       }
 
-      // Audit log
       if (!asDraft) {
         await supabase.from('audit_logs').insert({
-          solicitation_id: sol.id,
+          solicitation_id: solId!,
           user_id: profile.id,
-          action: 'Solicitação criada',
-          details: `Ticket ${ticketId} criado por ${profile.name}`,
+          action: editId ? 'Solicitação atualizada' : 'Solicitação criada',
+          details: `Ticket ${ticketId} ${editId ? 'atualizado' : 'criado'} por ${profile.name}`,
         });
 
         // Notify relevant attendants
@@ -180,25 +210,26 @@ const NovaSolicitacao = () => {
             .eq('operation_id', operationId);
 
           if (assignments) {
-            for (const a of assignments) {
+            const uniqueUsers = [...new Set(assignments.map(a => a.user_id))];
+            for (const userId of uniqueUsers) {
               await supabase.from('notifications').insert({
-                user_id: a.user_id,
+                user_id: userId,
                 type: 'nova_solicitacao',
                 message: `Nova solicitação ${ticketId} recebida`,
-                solicitation_id: sol.id,
+                solicitation_id: solId!,
               });
             }
           }
         }
       }
 
-      queryClient.invalidateQueries({ queryKey: ['solicitations'] });
+      queryClient.invalidateQueries();
 
       if (asDraft) {
         toast.success('Rascunho salvo!');
       } else {
         toast.success(`Solicitação ${ticketId} criada!`);
-        navigate(`/solicitacoes/${sol.id}`);
+        navigate(`/solicitacoes/${solId}`);
       }
     } catch (err: any) {
       toast.error('Erro ao salvar: ' + err.message);
@@ -209,10 +240,9 @@ const NovaSolicitacao = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-foreground mb-6">Nova Solicitação</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">{editId ? 'Editar Solicitação' : 'Nova Solicitação'}</h1>
 
       <Card className="p-8 max-w-4xl mx-auto">
-        {/* Informações do Processo */}
         <h2 className="text-lg font-semibold text-primary mb-4 border-b pb-2">Informações do Processo</h2>
         <div className="grid grid-cols-2 gap-6 mb-6">
           <div>
@@ -238,20 +268,11 @@ const NovaSolicitacao = () => {
           </div>
           <div>
             <Label>Número do processo *</Label>
-            <Input
-              value={processNumber}
-              onChange={(e) => setProcessNumber(e.target.value)}
-              onBlur={checkDuplicate}
-              placeholder="Ex.: 0001234-56.20.25.8.26.0100"
-            />
+            <Input value={processNumber} onChange={(e) => setProcessNumber(e.target.value)} onBlur={checkDuplicate} placeholder="Ex.: 0001234-56.20.25.8.26.0100" />
           </div>
           <div>
             <Label>Funcionário *</Label>
-            <Input
-              value={employeeName}
-              onChange={(e) => setEmployeeName(e.target.value)}
-              placeholder="Nome do colaborador"
-            />
+            <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} placeholder="Nome do colaborador" />
           </div>
           <div>
             <Label>Solicitante</Label>
@@ -267,14 +288,7 @@ const NovaSolicitacao = () => {
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={deadline}
-                  onSelect={setDeadline}
-                  disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))}
-                  locale={ptBR}
-                  className="p-3 pointer-events-auto"
-                />
+                <Calendar mode="single" selected={deadline} onSelect={setDeadline} disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))} locale={ptBR} className="p-3 pointer-events-auto" />
               </PopoverContent>
             </Popover>
           </div>
@@ -282,15 +296,9 @@ const NovaSolicitacao = () => {
 
         <div className="mb-6">
           <Label>Observações</Label>
-          <Textarea
-            value={observations}
-            onChange={(e) => setObservations(e.target.value)}
-            rows={3}
-            placeholder="Observações gerais sobre a solicitação (opcional)"
-          />
+          <Textarea value={observations} onChange={(e) => setObservations(e.target.value)} rows={3} placeholder="Observações gerais sobre a solicitação (opcional)" />
         </div>
 
-        {/* Anexos */}
         <h2 className="text-lg font-semibold text-primary mb-4 border-b pb-2">Anexos</h2>
         <label className="block border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary hover:bg-info/5 transition-colors mb-4">
           <Paperclip className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
@@ -304,39 +312,25 @@ const NovaSolicitacao = () => {
                 <FileText className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm flex-1">{f.name}</span>
                 <span className="text-xs text-muted-foreground">{(f.size / 1024).toFixed(1)} KB</span>
-                <button onClick={() => removeFile(i)} className="text-danger hover:text-danger/80">
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <button onClick={() => removeFile(i)} className="text-danger hover:text-danger/80"><Trash2 className="h-4 w-4" /></button>
               </div>
             ))}
           </div>
         )}
 
-        {/* Documentos */}
         <h2 className="text-lg font-semibold text-primary mb-4 border-b pb-2">Documentos Solicitados</h2>
         <div className="space-y-3 mb-4">
           {documents.map((doc, i) => (
             <div key={i} className="flex items-center gap-3">
               <span className="text-muted-foreground text-sm w-6">{i + 1}</span>
-              <Input
-                value={doc.name}
-                onChange={(e) => updateDocument(i, 'name', e.target.value)}
-                placeholder="Nome do documento"
-                className="flex-1"
-              />
+              <Input value={doc.name} onChange={(e) => updateDocument(i, 'name', e.target.value)} placeholder="Nome do documento" className="flex-1" />
               <Select value={doc.area_id} onValueChange={(v) => updateDocument(i, 'area_id', v)}>
                 <SelectTrigger className="w-40"><SelectValue placeholder="Responsável" /></SelectTrigger>
                 <SelectContent>
-                  {areas.map((a: any) => (
-                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                  ))}
+                  {areas.map((a: any) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <button
-                onClick={() => removeDocument(i)}
-                disabled={documents.length <= 1}
-                className="text-danger hover:text-danger/80 disabled:opacity-30"
-              >
+              <button onClick={() => removeDocument(i)} disabled={documents.length <= 1} className="text-danger hover:text-danger/80 disabled:opacity-30">
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>
@@ -346,29 +340,17 @@ const NovaSolicitacao = () => {
           <PlusCircle className="h-4 w-4 mr-1" /> Adicionar documento
         </Button>
 
-        {/* Footer */}
         <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
-          <Button variant="outline" className="text-muted-foreground" onClick={() => setCancelDialog(true)}>
-            Cancelar
-          </Button>
-          <Button className="bg-primary-light text-primary-foreground hover:bg-primary-light/90" onClick={() => save(true)} disabled={saving}>
-            Salvar rascunho
-          </Button>
-          <Button onClick={() => save(false)} disabled={saving}>
-            Enviar solicitação
-          </Button>
+          <Button variant="outline" className="text-muted-foreground" onClick={() => setCancelDialog(true)}>Cancelar</Button>
+          <Button className="bg-primary-light text-primary-foreground hover:bg-primary-light/90" onClick={() => save(true)} disabled={saving}>Salvar rascunho</Button>
+          <Button onClick={() => save(false)} disabled={saving}>Enviar solicitação</Button>
         </div>
       </Card>
 
-      {/* Duplicate dialog */}
       <Dialog open={!!duplicateDialog} onOpenChange={() => setDuplicateDialog(null)}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Processo duplicado</DialogTitle>
-          </DialogHeader>
-          <p className="text-muted-foreground">
-            Já existe o ticket <strong>{duplicateDialog}</strong> para este processo. Deseja continuar?
-          </p>
+          <DialogHeader><DialogTitle>Processo duplicado</DialogTitle></DialogHeader>
+          <p className="text-muted-foreground">Já existe o ticket <strong>{duplicateDialog}</strong> para este processo. Deseja continuar?</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setDuplicateDialog(null); setProcessNumber(''); }}>Cancelar</Button>
             <Button onClick={() => setDuplicateDialog(null)}>Sim, continuar</Button>
@@ -376,12 +358,9 @@ const NovaSolicitacao = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Cancel dialog */}
       <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancelar solicitação?</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Cancelar solicitação?</DialogTitle></DialogHeader>
           <p className="text-muted-foreground">Dados não salvos serão perdidos.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCancelDialog(false)}>Ficar</Button>
