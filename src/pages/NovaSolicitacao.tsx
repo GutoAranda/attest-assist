@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, PlusCircle, Trash2, Paperclip, FileText } from 'lucide-react';
+import BulkDocumentImport from '@/components/BulkDocumentImport';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -319,6 +320,17 @@ const NovaSolicitacao = () => {
         )}
 
         <h2 className="text-lg font-semibold text-primary mb-4 border-b pb-2">Documentos Solicitados</h2>
+
+        <BulkDocumentImport
+          areas={areas}
+          onImport={(newDocs) => {
+            setDocuments(prev => {
+              const filtered = prev.filter(d => d.name || d.area_id);
+              return [...filtered, ...newDocs];
+            });
+          }}
+        />
+
         <div className="space-y-3 mb-4">
           {documents.map((doc, i) => (
             <div key={i} className="flex items-center gap-3">

@@ -29,6 +29,7 @@ const Admin = () => {
   const [editAreaDialog, setEditAreaDialog] = useState<any>(null);
   const [editAreaName, setEditAreaName] = useState('');
   const [inviteDialog, setInviteDialog] = useState(false);
+  const [addAdminDialog, setAddAdminDialog] = useState(false);
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('atendente');
@@ -81,6 +82,17 @@ const Admin = () => {
     queryClient.invalidateQueries({ queryKey: ['admin-assignments'] });
   };
 
+  const toggleAdmin = async (p: any) => {
+    const admins = allProfiles.filter((pr: any) => pr.is_admin && pr.is_active);
+    if (p.is_admin && admins.length <= 1) {
+      toast.error('Não é possível remover o último administrador');
+      return;
+    }
+    await supabase.from('profiles').update({ is_admin: !p.is_admin }).eq('id', p.id);
+    invalidateAll();
+    toast.success(p.is_admin ? 'Permissão de admin removida' : 'Admin adicionado');
+  };
+
   // Operations
   const createOperation = async () => {
     if (!newOpName.trim()) return;
@@ -131,17 +143,6 @@ const Admin = () => {
   const toggleUserActive = async (p: any) => {
     await supabase.from('profiles').update({ is_active: !p.is_active }).eq('id', p.id);
     invalidateAll();
-  };
-
-  const toggleAdmin = async (p: any) => {
-    const admins = allProfiles.filter(pr => pr.is_admin);
-    if (p.is_admin && admins.length <= 1) {
-      toast.error('Não é possível remover o último administrador');
-      return;
-    }
-    await supabase.from('profiles').update({ is_admin: !p.is_admin }).eq('id', p.id);
-    invalidateAll();
-    toast.success(p.is_admin ? 'Permissão de admin removida' : 'Admin adicionado');
   };
 
   const removeAssignment = async (assignmentId: string) => {
@@ -433,10 +434,13 @@ const Admin = () => {
           </Card>
         </TabsContent>
 
-        {/* ADMINS TAB */}
         <TabsContent value="admins">
           <Card className="p-6">
-            <h2 className="text-lg font-semibold text-primary mb-4">Administradores</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-primary">Administradores</h2>
+              <Button size="sm" onClick={() => setAddAdminDialog(true)}><PlusCircle className="h-4 w-4 mr-1" /> Adicionar admin</Button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-6">Administradores podem gerenciar operações, áreas, usuários e permissões.</p>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -446,7 +450,7 @@ const Admin = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {allProfiles.filter(p => p.role === 'juridico').map((p: any) => (
+                {allProfiles.filter((p: any) => p.role === 'juridico' && p.is_admin).map((p: any) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.name}</TableCell>
                     <TableCell className="text-muted-foreground">{p.email}</TableCell>
@@ -594,6 +598,32 @@ const Admin = () => {
             <Button onClick={handleInvite} disabled={inviteLoading}>
               {inviteLoading ? 'Convidando...' : 'Convidar'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Admin Dialog */}
+      <Dialog open={addAdminDialog} onOpenChange={setAddAdminDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Adicionar Administrador</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground mb-4">Selecione um usuário do Jurídico para tornar administrador:</p>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {allProfiles.filter((p: any) => p.role === 'juridico' && !p.is_admin).length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Todos os usuários do Jurídico já são administradores</p>
+            ) : (
+              allProfiles.filter((p: any) => p.role === 'juridico' && !p.is_admin).map((p: any) => (
+                <div key={p.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-accent">
+                  <div>
+                    <p className="font-medium text-sm">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">{p.email}</p>
+                  </div>
+                  <Button size="sm" onClick={async () => { await supabase.from('profiles').update({ is_admin: true }).eq('id', p.id); invalidateAll(); setAddAdminDialog(false); toast.success(p.name + ' agora é administrador!'); }}>Tornar admin</Button>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddAdminDialog(false)}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
