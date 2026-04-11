@@ -148,9 +148,11 @@ const NovaSolicitacao = () => {
         // Delete old docs and re-insert
         await supabase.from('documents').delete().eq('solicitation_id', editId);
       } else {
-        const { data: sol, error: solErr } = await supabase
-          .from('solicitations')
+        const newId = crypto.randomUUID();
+        const { error: solErr } = await supabase
+          .from("solicitations")
           .insert({
+            id: newId,
             ticket_id: ticketId,
             operation_id: operationId,
             process_number: processNumber || null,
@@ -158,12 +160,10 @@ const NovaSolicitacao = () => {
             requester_id: profile.id,
             observations: observations || null,
             status,
-            deadline: deadline ? format(deadline, 'yyyy-MM-dd') : null,
-          })
-          .select()
-          .single();
+            deadline: deadline ? format(deadline, "yyyy-MM-dd") : null,
+          });
         if (solErr) throw solErr;
-        solId = sol.id;
+        solId = newId;
       }
 
       // Insert documents
