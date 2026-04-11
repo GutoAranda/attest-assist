@@ -472,6 +472,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      generate_ticket_id: { Args: never; Returns: string }
       get_my_profile_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
       is_juridico: { Args: never; Returns: boolean }
