@@ -309,7 +309,23 @@ const NovaSolicitacao = () => {
                 solicitation_id: solId!,
               });
             }
-          }
+        }
+
+        // Send emails per area
+        const areaDocsMap: Record<string, { name: string }[]> = {};
+        for (const doc of validDocs) {
+          if (!areaDocsMap[doc.area_id]) areaDocsMap[doc.area_id] = [];
+          areaDocsMap[doc.area_id].push({ name: doc.name });
+        }
+        const opName = operations.find((o: any) => o.id === operationId)?.name || '';
+        for (const [areaId, areaDocs] of Object.entries(areaDocsMap)) {
+          const areaName = areas.find((a: any) => a.id === areaId)?.name || '';
+          sendNewSolicitationEmail(
+            areaId, areaName, operationId, solId!, ticketId || '', opName,
+            employeeName, employeeRegistration, processNumber,
+            deadline ? format(deadline, 'yyyy-MM-dd') : '', observations, areaDocs
+          );
+        }
         }
       } else if (editId) {
         await supabase.from('audit_logs').insert({
