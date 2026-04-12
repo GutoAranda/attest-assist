@@ -63,7 +63,7 @@ const SortableDocumentRow = ({ id, index, doc, areas, onUpdate, onRemove, canRem
   );
 };
 
-
+const isMissingDuplicateRpc = (error: { code?: string; message?: string } | null) => {
   if (!error) return false;
   return error.code === 'PGRST202' || error.message?.includes('Could not find the function');
 };
