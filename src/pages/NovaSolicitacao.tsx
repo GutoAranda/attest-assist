@@ -68,13 +68,16 @@ const NovaSolicitacao = () => {
           setOperationId(sol.operation_id);
           setProcessNumber(sol.process_number || '');
           setEmployeeName(sol.employee_name || '');
+          setDocuments([]);
           setEmployeeRegistration((sol as any).employee_registration || '');
           setObservations(sol.observations || '');
           if (sol.deadline) setDeadline(new Date(sol.deadline + 'T00:00:00'));
         }
         const { data: docs } = await supabase.from('documents').select('*').eq('solicitation_id', editId);
-        if (docs && docs.length > 0) {
+if (docs && docs.length > 0) {
           setDocuments(docs.map(d => ({ name: d.document_name, area_id: d.responsible_area_id })));
+        } else {
+          setDocuments([{ name: '', area_id: '' }]);
         }
       })();
     }
