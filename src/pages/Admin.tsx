@@ -212,13 +212,15 @@ const Admin = () => {
     if (!inviteName || !inviteEmail) { toast.error('Preencha nome e email'); return; }
     setInviteLoading(true);
     try {
-      const profileId = crypto.randomUUID();
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: profileId, user_id: profileId, name: inviteName, email: inviteEmail, role: inviteRole, is_admin: false, is_active: true,
+      const { data, error } = await supabase.functions.invoke('invite-user', {
+        body: { name: inviteName, email: inviteEmail, role: inviteRole, is_admin: false },
       });
-      if (profileError) throw profileError;
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
-      if (inviteRole === 'atendente' && inviteAreaId) {
+      const profileId = data.profile_id;
+
+      if (inviteRole === 'atendente' && inviteAreaId && profileId) {
         for (const opId of inviteOpIds) {
           await supabase.from('user_group_assignments').insert({
             user_id: profileId, area_id: inviteAreaId, operation_id: opId,
