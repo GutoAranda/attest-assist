@@ -477,6 +477,19 @@ export type Database = {
     Functions: {
       can_access_document: { Args: { doc_id: string }; Returns: boolean }
       can_access_solicitation: { Args: { sol_id: string }; Returns: boolean }
+      check_duplicate_employee: {
+        Args: { p_exclude_id?: string; p_name: string }
+        Returns: {
+          process_number: string
+          ticket_id: string
+        }[]
+      }
+      check_duplicate_process: {
+        Args: { p_exclude_id?: string; p_number: string }
+        Returns: {
+          ticket_id: string
+        }[]
+      }
       generate_ticket_id: { Args: never; Returns: string }
       get_my_profile_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }

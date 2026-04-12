@@ -62,19 +62,19 @@ const NovaSolicitacao = () => {
 
   useEffect(() => {
     if (editId) {
+      setDocuments([]);
       (async () => {
         const { data: sol } = await supabase.from('solicitations').select('*').eq('id', editId).single();
         if (sol) {
           setOperationId(sol.operation_id);
           setProcessNumber(sol.process_number || '');
           setEmployeeName(sol.employee_name || '');
-          setDocuments([]);
           setEmployeeRegistration((sol as any).employee_registration || '');
           setObservations(sol.observations || '');
           if (sol.deadline) setDeadline(new Date(sol.deadline + 'T00:00:00'));
         }
         const { data: docs } = await supabase.from('documents').select('*').eq('solicitation_id', editId);
-if (docs && docs.length > 0) {
+        if (docs && docs.length > 0) {
           setDocuments(docs.map(d => ({ name: d.document_name, area_id: d.responsible_area_id })));
         } else {
           setDocuments([{ name: '', area_id: '' }]);
@@ -85,12 +85,10 @@ if (docs && docs.length > 0) {
 
   const checkDuplicate = async () => {
     if (!processNumber) return;
-    const { data } = await supabase
-      .from('solicitations')
-      .select('ticket_id')
-      .eq('process_number', processNumber)
-      .neq('id', editId || '')
-      .limit(1);
+    const { data } = await supabase.rpc('check_duplicate_process', {
+      p_number: processNumber,
+      p_exclude_id: editId || null,
+    });
     if (data && data.length > 0) {
       setDuplicateDialog(data[0].ticket_id!);
     }
@@ -98,12 +96,10 @@ if (docs && docs.length > 0) {
 
   const checkEmployeeDuplicate = async () => {
     if (!employeeName) return;
-    const { data } = await supabase
-      .from('solicitations')
-      .select('ticket_id, process_number')
-      .ilike('employee_name', employeeName)
-      .neq('id', editId || '')
-      .limit(5);
+    const { data } = await supabase.rpc('check_duplicate_employee', {
+      p_name: employeeName,
+      p_exclude_id: editId || null,
+    });
     if (data && data.length > 0) {
       setEmployeeDuplicateDialog({ tickets: data as any });
     }
