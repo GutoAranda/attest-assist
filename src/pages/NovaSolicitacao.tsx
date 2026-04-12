@@ -207,6 +207,21 @@ const NovaSolicitacao = () => {
     }
   };
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+  const documentIds = documents.map((_, i) => `doc-${i}`);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = parseInt(String(active.id).replace('doc-', ''));
+      const newIndex = parseInt(String(over.id).replace('doc-', ''));
+      setDocuments(arrayMove(documents, oldIndex, newIndex));
+    }
+  };
+
   const addDocument = () => setDocuments([...documents, { name: '', area_id: '' }]);
   const removeDocument = (idx: number) => {
     if (documents.length <= 1) return;
