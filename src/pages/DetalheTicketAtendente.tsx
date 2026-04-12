@@ -182,6 +182,15 @@ const DetalheTicketAtendente = () => {
         action: 'Comentário adicionado',
         details: comment,
       });
+      // Notify juridico requester
+      if (solicitation?.requester_id && solicitation.requester_id !== profile.id) {
+        await supabase.from('notifications').insert({
+          user_id: solicitation.requester_id,
+          type: 'comentario',
+          message: `Novo comentário em ${solicitation.ticket_id}`,
+          solicitation_id: id!,
+        });
+      }
       setComment('');
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
