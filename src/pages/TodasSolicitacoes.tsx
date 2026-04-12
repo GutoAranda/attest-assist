@@ -17,7 +17,7 @@ const TodasSolicitacoes = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'todos');
+  const [statusFilter, setStatusFilter] = useState('todos');
   const [operationFilter, setOperationFilter] = useState('todos');
   const [requesterFilter, setRequesterFilter] = useState('todos');
   const [page, setPage] = useState(0);
