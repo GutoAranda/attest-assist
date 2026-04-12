@@ -1,0 +1,5 @@
+// Configuration for the external Supabase project
+// These are publishable keys (anon key) - safe to include in client code
+export const SUPABASE_URL = "https://qsksbdqqxjmbbufajxxe.supabase.co";
+export const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFza3NiZHFxeGptYmJ1ZmFqeHhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NjMzMTcsImV4cCI6MjA5MTMzOTMxN30.9WL5Sq3xwFK_dD1okK4aS1Tq7m7xGu4Y0S7J-d6lqSc";
+export const SUPABASE_PROJECT_ID = "qsksbdqqxjmbbufajxxe";
