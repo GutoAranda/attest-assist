@@ -12,7 +12,7 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Trash2, Paperclip, FileText, Loader2 } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, Paperclip, FileText, Loader2, GripVertical } from 'lucide-react';
 import BulkDocumentImport from '@/components/BulkDocumentImport';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -20,11 +20,48 @@ import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { buildStoragePublicUrl } from '@/lib/storage';
 import { sendNewSolicitationEmail } from '@/lib/email';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface DocumentRow {
   name: string;
   area_id: string;
 }
+
+interface SortableDocProps {
+  id: string;
+  index: number;
+  doc: DocumentRow;
+  areas: any[];
+  onUpdate: (idx: number, field: keyof DocumentRow, value: string) => void;
+  onRemove: (idx: number) => void;
+  canRemove: boolean;
+}
+
+const SortableDocumentRow = ({ id, index, doc, areas, onUpdate, onRemove, canRemove }: SortableDocProps) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-3">
+      <button type="button" className="cursor-grab text-muted-foreground hover:text-foreground" {...attributes} {...listeners}>
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <span className="text-muted-foreground text-sm w-6">{index + 1}</span>
+      <Input value={doc.name} onChange={(e) => onUpdate(index, 'name', e.target.value)} placeholder="Nome do documento" className="flex-1" />
+      <Select value={doc.area_id} onValueChange={(v) => onUpdate(index, 'area_id', v)}>
+        <SelectTrigger className="w-40"><SelectValue placeholder="Responsável" /></SelectTrigger>
+        <SelectContent>
+          {areas.map((a: any) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <button onClick={() => onRemove(index)} disabled={!canRemove} className="text-danger hover:text-danger/80 disabled:opacity-30">
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+};
 
 const isMissingDuplicateRpc = (error: { code?: string; message?: string } | null) => {
   if (!error) return false;
@@ -167,6 +204,21 @@ const NovaSolicitacao = () => {
 
     if (result && result.length > 0) {
       setEmployeeDuplicateDialog({ tickets: result as any });
+    }
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+  const documentIds = documents.map((_, i) => `doc-${i}`);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = parseInt(String(active.id).replace('doc-', ''));
+      const newIndex = parseInt(String(over.id).replace('doc-', ''));
+      setDocuments(arrayMove(documents, oldIndex, newIndex));
     }
   };
 
@@ -450,23 +502,24 @@ const NovaSolicitacao = () => {
           }}
         />
 
-        <div className="space-y-3 mb-4">
-          {documents.map((doc, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <span className="text-muted-foreground text-sm w-6">{i + 1}</span>
-              <Input value={doc.name} onChange={(e) => updateDocument(i, 'name', e.target.value)} placeholder="Nome do documento" className="flex-1" />
-              <Select value={doc.area_id} onValueChange={(v) => updateDocument(i, 'area_id', v)}>
-                <SelectTrigger className="w-40"><SelectValue placeholder="Responsável" /></SelectTrigger>
-                <SelectContent>
-                  {areas.map((a: any) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <button onClick={() => removeDocument(i)} disabled={documents.length <= 1} className="text-danger hover:text-danger/80 disabled:opacity-30">
-                <Trash2 className="h-4 w-4" />
-              </button>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={documentIds} strategy={verticalListSortingStrategy}>
+            <div className="space-y-3 mb-4">
+              {documents.map((doc, i) => (
+                <SortableDocumentRow
+                  key={`doc-${i}`}
+                  id={`doc-${i}`}
+                  index={i}
+                  doc={doc}
+                  areas={areas}
+                  onUpdate={updateDocument}
+                  onRemove={removeDocument}
+                  canRemove={documents.length > 1}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
         <Button variant="ghost" size="sm" className="text-primary hover:bg-info/5" onClick={addDocument}>
           <PlusCircle className="h-4 w-4 mr-1" /> Adicionar documento
         </Button>
