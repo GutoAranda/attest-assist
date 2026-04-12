@@ -53,14 +53,12 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-md bg-card rounded-xl shadow-lg p-8">
         <div className="flex flex-col items-center mb-6">
-          <div className="h-12 w-12 rounded bg-primary flex items-center justify-center mb-2">
-            <span className="text-primary-foreground font-bold text-lg">LG</span>
-          </div>
-          <h1 className="text-xl font-bold text-foreground">LOTS Group</h1>
-          <p className="text-sm text-muted-foreground">Solicitações Jurídicas</p>
+          <h1 className="text-2xl font-bold text-primary tracking-wider">LOTS</h1>
+          <p className="text-sm font-light text-muted-foreground">DocFlow</p>
+          <p className="text-xs text-muted-foreground mt-1">Solicitações Jurídicas</p>
         </div>
         <hr className="mb-6" />
         <form onSubmit={handleLogin} className="space-y-4">

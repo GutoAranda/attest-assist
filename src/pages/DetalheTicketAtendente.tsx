@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, ChevronDown, Upload, Send, FileText, Download, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Upload, Send, FileText, Download, Loader2, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { buildStoragePublicUrl, openStorageFile } from '@/lib/storage';
+import { sendCommentEmail, sendConclusionEmail } from '@/lib/email';
 
 const DetalheTicketAtendente = () => {
   const { id } = useParams();
@@ -24,6 +25,12 @@ const DetalheTicketAtendente = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [docStates, setDocStates] = useState<Record<string, { status: string; observations: string; file?: File }>>({});
   const [concluding, setConcluding] = useState(false);
+  const [expandedVersions, setExpandedVersions] = useState<Record<string, boolean>>({});
+
+  // Typing indicator
+  const [typingUser, setTypingUser] = useState<string | null>(null);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const channelRef = useRef<any>(null);
 
   const { data: myAssignments = [] } = useQuery({
     queryKey: ['my-assignments', profile?.id],
@@ -40,7 +47,7 @@ const DetalheTicketAtendente = () => {
     queryFn: async () => {
       const { data } = await supabase
         .from('solicitations')
-        .select('*, operations(name), profiles!solicitations_requester_id_fkey(name)')
+        .select('*, operations(name), profiles!solicitations_requester_id_fkey(name, email)')
         .eq('id', id)
         .single();
       return data;
@@ -59,6 +66,14 @@ const DetalheTicketAtendente = () => {
     queryKey: ['attachments', id],
     queryFn: async () => {
       const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).is('document_id', null).order('uploaded_at');
+      return data || [];
+    },
+  });
+
+  const { data: docAttachments = [] } = useQuery({
+    queryKey: ['doc-attachments', id],
+    queryFn: async () => {
+      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).not('document_id', 'is', null).order('uploaded_at');
       return data || [];
     },
   });
@@ -95,7 +110,27 @@ const DetalheTicketAtendente = () => {
     },
   });
 
-  // Filter documents to only show those in user's area
+  // Realtime typing
+  useEffect(() => {
+    if (!id || !profile) return;
+    const channel = supabase.channel(`typing-${id}`);
+    channel.on('broadcast', { event: 'typing' }, (payload: any) => {
+      if (payload.payload.userId !== profile.id) {
+        setTypingUser(payload.payload.name);
+        if (typingTimeout.current) clearTimeout(typingTimeout.current);
+        typingTimeout.current = setTimeout(() => setTypingUser(null), 3000);
+      }
+    }).subscribe();
+    channelRef.current = channel;
+    return () => { supabase.removeChannel(channel); };
+  }, [id, profile]);
+
+  const broadcastTyping = () => {
+    if (channelRef.current && profile) {
+      channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { userId: profile.id, name: profile.name } });
+    }
+  };
+
   const myDocs = allDocuments.filter((d: any) =>
     myAssignments.some(a => a.area_id === d.responsible_area_id && a.operation_id === solicitation?.operation_id)
   );
@@ -112,6 +147,10 @@ const DetalheTicketAtendente = () => {
       ...prev,
       [docId]: { ...getDocState(docId, {}), ...prev[docId], [field]: value }
     }));
+  };
+
+  const getDocVersions = (docId: string) => {
+    return docAttachments.filter((a: any) => a.document_id === docId).sort((a: any, b: any) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime());
   };
 
   const saveDocChanges = async (doc: any) => {
@@ -155,6 +194,7 @@ const DetalheTicketAtendente = () => {
       });
 
       queryClient.invalidateQueries({ queryKey: ['documents', id] });
+      queryClient.invalidateQueries({ queryKey: ['doc-attachments', id] });
       queryClient.invalidateQueries({ queryKey: ['solicitation', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
       toast.success('Documento atualizado!');
@@ -171,6 +211,11 @@ const DetalheTicketAtendente = () => {
       await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
       if (solicitation?.requester_id && solicitation.requester_id !== profile.id) {
         await supabase.from('notifications').insert({ user_id: solicitation.requester_id, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
+        // Email to requester
+        const requesterEmail = (solicitation.profiles as any)?.email;
+        if (requesterEmail) {
+          await sendCommentEmail(requesterEmail, id!, solicitation.ticket_id!, comment, profile.name, 'juridico');
+        }
       }
       setComment('');
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
@@ -240,6 +285,11 @@ const DetalheTicketAtendente = () => {
           message: `Solicitação ${solicitation.ticket_id} foi concluída`,
           solicitation_id: id!,
         });
+        // Send conclusion email
+        const requesterEmail = (solicitation.profiles as any)?.email;
+        if (requesterEmail) {
+          await sendConclusionEmail(requesterEmail, id!, solicitation.ticket_id!, allDocuments.map((d: any) => ({ document_name: d.document_name, status: d.status })));
+        }
       }
 
       queryClient.invalidateQueries();
@@ -266,15 +316,15 @@ const DetalheTicketAtendente = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <Card className="p-6 mb-6">
+      <Card className="p-4 md:p-6 mb-6">
         <Button variant="ghost" size="sm" className="mb-4" onClick={() => navigate('/minhas-solicitacoes')}>
           <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
         </Button>
-        <div className="flex items-center gap-3 mb-4">
-          <h1 className="text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <h1 className="text-xl md:text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
           <StatusBadge status={solicitation.status as any} />
         </div>
-        <div className="grid grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div><p className="text-sm text-muted-foreground">Operação</p><p className="font-semibold">{(solicitation.operations as any)?.name}</p></div>
           <div><p className="text-sm text-muted-foreground">Nº Processo</p><p className="font-semibold text-sm">{solicitation.process_number || '—'}</p></div>
           <div><p className="text-sm text-muted-foreground">Funcionário</p><p className="font-semibold">{solicitation.employee_name}</p></div>
@@ -289,8 +339,7 @@ const DetalheTicketAtendente = () => {
             )}
           </div>
         </div>
-        {/* Area status indicators */}
-        <div className="flex gap-2 mt-4">
+        <div className="flex flex-wrap gap-2 mt-4">
           {areas.filter((a: any) => allDocuments.some((d: any) => d.responsible_area_id === a.id)).map((area: any) => {
             const concluded = areaConclusions.some((c: any) => c.area_id === area.id);
             return (
@@ -301,7 +350,7 @@ const DetalheTicketAtendente = () => {
           })}
         </div>
         {solicitation.observations && (
-          <div className="bg-[hsl(48,100%,96%)] border-l-4 border-[hsl(48,96%,53%)] p-3 rounded text-sm mt-4">
+          <div className="bg-[hsl(48,100%,96%)] dark:bg-warning/10 border-l-4 border-[hsl(48,96%,53%)] p-3 rounded text-sm mt-4">
             <strong>Observações:</strong> {solicitation.observations}
           </div>
         )}
@@ -309,11 +358,11 @@ const DetalheTicketAtendente = () => {
 
       {/* Solicitation Attachments */}
       {attachments.length > 0 && (
-        <Card className="p-6 mb-6">
+        <Card className="p-4 md:p-6 mb-6">
           <h2 className="text-lg font-semibold text-primary mb-4">Anexos da Solicitação</h2>
           <div className="space-y-2">
             {attachments.map((a: any) => (
-              <div key={a.id} className="flex items-center gap-3 p-3 bg-accent rounded-lg">
+              <div key={a.id} className="flex items-center gap-3 p-3 bg-accent rounded-lg flex-wrap">
                 <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm flex-1 truncate">{a.file_name}</span>
                 <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
@@ -327,14 +376,15 @@ const DetalheTicketAtendente = () => {
       )}
 
       {/* Documents */}
-      <Card className="p-6 mb-6">
+      <Card className="p-4 md:p-6 mb-6">
         <h2 className="text-lg font-semibold text-primary mb-4">Documentos Solicitados</h2>
         {sortedDocs.map((doc: any) => {
           const currentStatus = docStates[doc.id]?.status || doc.status;
-          const isDisabled = doc.status === 'pendente' ? false : doc.status === 'revisao_solicitada' ? false : !docStates[doc.id];
+          const versions = getDocVersions(doc.id);
+          const hasVersions = versions.length > 1 || (versions.length > 0 && doc.revision_reason);
 
           return (
-            <div key={doc.id} className="bg-accent rounded-lg p-5 mb-4 border">
+            <div key={doc.id} className="bg-accent rounded-lg p-4 md:p-5 mb-4 border">
               <h3 className="font-semibold text-foreground mb-3">{doc.document_name}</h3>
 
               {doc.revision_reason && (doc.status === 'revisao_solicitada' || currentStatus === 'revisao_solicitada') && (
@@ -344,13 +394,10 @@ const DetalheTicketAtendente = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm text-muted-foreground mb-1 block">Status *</label>
-                  <Select
-                    value={currentStatus}
-                    onValueChange={(v) => updateDocState(doc.id, 'status', v)}
-                  >
+                  <Select value={currentStatus} onValueChange={(v) => updateDocState(doc.id, 'status', v)}>
                     <SelectTrigger className={
                       currentStatus === 'enviado' ? 'bg-success/5 border-success/30 text-success' :
                       currentStatus === 'inexistente' ? 'bg-danger/10 border-danger text-danger' :
@@ -400,6 +447,32 @@ const DetalheTicketAtendente = () => {
                 />
               </div>
 
+              {/* Version history */}
+              {hasVersions && (
+                <div className="mt-2">
+                  <button
+                    className="text-xs text-info flex items-center gap-1 hover:underline"
+                    onClick={() => setExpandedVersions(prev => ({ ...prev, [doc.id]: !prev[doc.id] }))}
+                  >
+                    <History className="h-3 w-3" /> Ver histórico de versões ({versions.length})
+                  </button>
+                  {expandedVersions[doc.id] && (
+                    <div className="mt-2 space-y-2 pl-4 border-l-2 border-info/30">
+                      {versions.map((v: any, idx: number) => (
+                        <div key={v.id} className="text-sm flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-foreground">Versão {idx + 1}</span>
+                          <span className="text-xs text-muted-foreground">{v.file_name}</span>
+                          <span className="text-xs text-muted-foreground">por {(v.profiles as any)?.name} • {new Date(v.uploaded_at).toLocaleString('pt-BR')}</span>
+                          <Button variant="ghost" size="sm" className="text-info h-auto p-0 text-xs" onClick={() => openStorageFile(v.file_url)}>
+                            <Download className="h-3 w-3 mr-1" /> Baixar
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {docStates[doc.id] && (
                 <div className="mt-3 flex justify-end">
                   <Button size="sm" onClick={() => saveDocChanges(doc)}>Salvar alterações</Button>
@@ -411,7 +484,7 @@ const DetalheTicketAtendente = () => {
       </Card>
 
       {/* Comments */}
-      <Card className="p-6 mb-6">
+      <Card className="p-4 md:p-6 mb-6">
         <h2 className="text-lg font-semibold text-primary mb-4">Comentários</h2>
         <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
           {comments.map((c: any) => (
@@ -425,8 +498,11 @@ const DetalheTicketAtendente = () => {
           ))}
           {comments.length === 0 && <p className="text-muted-foreground text-center">Nenhum comentário</p>}
         </div>
+        {typingUser && (
+          <p className="text-xs text-muted-foreground mb-2 animate-pulse">{typingUser} está digitando...</p>
+        )}
         <div className="flex gap-2">
-          <Textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Escreva um comentário..." className="flex-1" />
+          <Textarea value={comment} onChange={(e) => { setComment(e.target.value); broadcastTyping(); }} rows={2} placeholder="Escreva um comentário..." className="flex-1" />
           <Button size="sm" className="self-end" disabled={!comment.trim() || sendingComment} onClick={sendCommentFn}>
             {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-1" /> Enviar</>}
           </Button>
@@ -434,7 +510,7 @@ const DetalheTicketAtendente = () => {
       </Card>
 
       {/* Audit History */}
-      <Card className="p-6 mb-6">
+      <Card className="p-4 md:p-6 mb-6">
         <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
           <CollapsibleTrigger className="flex items-center gap-2 text-lg font-semibold text-primary cursor-pointer">
             <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
@@ -443,7 +519,7 @@ const DetalheTicketAtendente = () => {
           <CollapsibleContent className="mt-4">
             <div className="space-y-2">
               {auditLogs.map((log: any) => (
-                <div key={log.id} className="flex gap-3 text-sm p-2 border-b">
+                <div key={log.id} className="flex gap-3 text-sm p-2 border-b flex-wrap">
                   <span className="text-muted-foreground whitespace-nowrap">
                     {new Date(log.created_at).toLocaleString('pt-BR')}
                   </span>
@@ -460,9 +536,9 @@ const DetalheTicketAtendente = () => {
       </Card>
 
       {/* Footer */}
-      <div className="flex justify-end gap-3 mt-6">
-        <Button variant="outline" onClick={() => navigate('/minhas-solicitacoes')}>Voltar</Button>
-        <Button onClick={handleConclude} disabled={concluding}>
+      <div className="flex flex-col md:flex-row justify-end gap-3 mt-6">
+        <Button variant="outline" onClick={() => navigate('/minhas-solicitacoes')} className="w-full md:w-auto">Voltar</Button>
+        <Button onClick={handleConclude} disabled={concluding} className="w-full md:w-auto">
           {concluding ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Concluindo...</> : 'Concluir'}
         </Button>
       </div>

@@ -1,10 +1,10 @@
-import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, LayoutDashboard, PlusCircle, List, FileText, Bell, FolderOpen, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, PlusCircle, List, FileText, Bell, FolderOpen, Settings, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface MenuItem {
   icon: React.ElementType;
@@ -12,11 +12,16 @@ interface MenuItem {
   path: string;
 }
 
-const Sidebar = () => {
-  const [collapsed, setCollapsed] = useState(false);
+interface SidebarProps {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}
+
+const Sidebar = ({ mobileOpen, onClose }: SidebarProps) => {
   const { profile } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const juridicoItems: MenuItem[] = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
@@ -38,9 +43,7 @@ const Sidebar = () => {
   let menuItems: MenuItem[] = [];
   if (profile?.role === 'juridico') {
     menuItems = [...juridicoItems];
-    if (profile.is_admin) {
-      menuItems = [...menuItems, ...adminItems];
-    }
+    if (profile.is_admin) menuItems = [...menuItems, ...adminItems];
   } else {
     menuItems = atendenteItems;
   }
@@ -55,46 +58,58 @@ const Sidebar = () => {
     return location.pathname === path;
   };
 
+  const handleNavigate = (path: string) => {
+    navigate(path);
+    if (isMobile && onClose) onClose();
+  };
+
+  if (isMobile) {
+    if (!mobileOpen) return null;
+    return (
+      <>
+        <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+        <aside className="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-card border-r z-50 flex flex-col animate-in slide-in-from-left">
+          <div className="p-2 flex justify-end">
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <nav className="flex-1 py-2">
+            {menuItems.map((item) => (
+              <button
+                key={item.path}
+                onClick={() => handleNavigate(item.path)}
+                className={cn(
+                  "flex items-center gap-3 mx-2 px-3 py-2 rounded-lg transition-colors text-sm w-[calc(100%-16px)]",
+                  isActive(item.path) ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                )}
+              >
+                <item.icon className="h-5 w-5 shrink-0" />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        </aside>
+      </>
+    );
+  }
+
   return (
-    <aside className={cn(
-      "fixed left-0 top-16 h-[calc(100vh-64px)] bg-card border-r transition-all duration-300 z-40 flex flex-col",
-      collapsed ? "w-16" : "w-64"
-    )}>
-      <div className="p-2">
-        <Button variant="ghost" size="icon" className="w-full flex justify-center" onClick={() => setCollapsed(!collapsed)}>
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </Button>
-      </div>
-
-      <nav className="flex-1 py-2">
-        {menuItems.map((item) => {
-          const active = isActive(item.path);
-          const btn = (
-            <button
-              key={item.path}
-              onClick={() => navigate(item.path)}
-              className={cn(
-                "flex items-center gap-3 mx-2 px-3 py-2 rounded-lg transition-colors text-sm",
-                active
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent"
-              )}
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </button>
-          );
-
-          if (collapsed) {
-            return (
-              <Tooltip key={item.path}>
-                <TooltipTrigger asChild>{btn}</TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
-              </Tooltip>
-            );
-          }
-          return btn;
-        })}
+    <aside className="fixed left-0 top-16 h-[calc(100vh-64px)] bg-card border-r transition-all duration-300 z-40 flex flex-col w-64">
+      <nav className="flex-1 py-4">
+        {menuItems.map((item) => (
+          <button
+            key={item.path}
+            onClick={() => handleNavigate(item.path)}
+            className={cn(
+              "flex items-center gap-3 mx-2 px-3 py-2 rounded-lg transition-colors text-sm w-[calc(100%-16px)]",
+              isActive(item.path) ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+            )}
+          >
+            <item.icon className="h-5 w-5 shrink-0" />
+            <span>{item.label}</span>
+          </button>
+        ))}
       </nav>
     </aside>
   );
