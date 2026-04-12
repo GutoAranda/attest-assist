@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,10 +7,12 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { StatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
-import { Search, Building2, User, CalendarDays, FileText } from 'lucide-react';
-import { Progress } from '@/components/ui/progress';
+import { Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+
+type SortCol = 'ticket_id' | 'status' | 'operation' | 'process_number' | 'employee_name' | 'employee_registration' | 'deadline' | 'progress';
 
 const PAGE_SIZE = 10;
 
@@ -18,8 +20,12 @@ const MinhasSolicitacoes = () => {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [statusFilters, setStatusFilters] = useState<string[]>(['aberto', 'em_atendimento']);
+  const [filterAberto, setFilterAberto] = useState(false);
+  const [filterEmAtendimento, setFilterEmAtendimento] = useState(false);
+  const [filterEmRevisao, setFilterEmRevisao] = useState(false);
   const [page, setPage] = useState(0);
+  const [sortCol, setSortCol] = useState<SortCol | null>(null);
+  const [sortAsc, setSortAsc] = useState(true);
 
   const { data: myAssignments = [] } = useQuery({
     queryKey: ['my-assignments', profile?.id],
@@ -32,44 +38,101 @@ const MinhasSolicitacoes = () => {
   });
 
   const { data: solicitationsData, isLoading } = useQuery({
-    queryKey: ['my-solicitations', profile?.id, search, statusFilters, myAssignments],
+    queryKey: ['my-solicitations', profile?.id, search, myAssignments],
     queryFn: async () => {
-      if (!profile || myAssignments.length === 0) return { items: [], total: 0 };
-
+      if (!profile || myAssignments.length === 0) return [];
       let query = supabase
         .from('solicitations')
         .select('*, operations(name), documents(id, status, responsible_area_id, document_name)')
         .neq('status', 'rascunho')
         .order('deadline', { ascending: true });
-
-      if (statusFilters.length > 0) query = query.in('status', statusFilters);
       if (search) {
         query = query.or(`ticket_id.ilike.%${search}%,process_number.ilike.%${search}%,employee_name.ilike.%${search}%`);
       }
-
       const { data } = await query;
-
-      const filtered = (data || []).filter((s: any) => {
+      return (data || []).filter((s: any) => {
         return s.documents?.some((d: any) =>
           myAssignments.some(a => a.area_id === d.responsible_area_id && a.operation_id === s.operation_id)
         );
       });
-
-      return { items: filtered, total: filtered.length };
     },
     enabled: !!profile && myAssignments.length > 0,
   });
 
-  const allItems = solicitationsData?.items || [];
-  const pagedItems = allItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.ceil(allItems.length / PAGE_SIZE);
+  const allItems = solicitationsData || [];
 
-  const toggleFilter = (status: string) => {
-    setStatusFilters(prev =>
-      prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
-    );
+  const getDocProgress = (s: any) => {
+    const myDocs = s.documents?.filter((d: any) =>
+      myAssignments.some(a => a.area_id === d.responsible_area_id && a.operation_id === s.operation_id)
+    ) || [];
+    const done = myDocs.filter((d: any) => d.status === 'enviado' || d.status === 'inexistente').length;
+    return { done, total: myDocs.length };
+  };
+
+  const filteredItems = useMemo(() => {
+    const anyFilterActive = filterAberto || filterEmAtendimento || filterEmRevisao;
+    if (!anyFilterActive) return allItems;
+    return allItems.filter((s: any) => {
+      if (filterAberto && s.status === 'aberto') return true;
+      if (filterEmAtendimento && s.status === 'em_atendimento') return true;
+      if (filterEmRevisao) {
+        const myDocs = s.documents?.filter((d: any) =>
+          myAssignments.some(a => a.area_id === d.responsible_area_id && a.operation_id === s.operation_id)
+        ) || [];
+        if (myDocs.some((d: any) => d.status === 'revisao_solicitada')) return true;
+      }
+      return false;
+    });
+  }, [allItems, filterAberto, filterEmAtendimento, filterEmRevisao, myAssignments]);
+
+  const sortedItems = useMemo(() => {
+    const sorted = [...filteredItems];
+    if (sortCol) {
+      sorted.sort((a: any, b: any) => {
+        let va: any, vb: any;
+        switch (sortCol) {
+          case 'ticket_id': va = a.ticket_id || ''; vb = b.ticket_id || ''; break;
+          case 'status': va = a.status || ''; vb = b.status || ''; break;
+          case 'operation': va = (a.operations as any)?.name || ''; vb = (b.operations as any)?.name || ''; break;
+          case 'process_number': va = a.process_number || ''; vb = b.process_number || ''; break;
+          case 'employee_name': va = a.employee_name || ''; vb = b.employee_name || ''; break;
+          case 'employee_registration': va = a.employee_registration || ''; vb = b.employee_registration || ''; break;
+          case 'deadline': va = a.deadline || ''; vb = b.deadline || ''; break;
+          case 'progress':
+            const pa = getDocProgress(a); const pb = getDocProgress(b);
+            va = pa.total > 0 ? pa.done / pa.total : 0;
+            vb = pb.total > 0 ? pb.done / pb.total : 0;
+            break;
+        }
+        const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
+        return sortAsc ? cmp : -cmp;
+      });
+    }
+    return sorted;
+  }, [filteredItems, sortCol, sortAsc, myAssignments]);
+
+  const pagedItems = sortedItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(sortedItems.length / PAGE_SIZE);
+
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) {
+      if (sortAsc) { setSortAsc(false); }
+      else { setSortCol(null); setSortAsc(true); }
+    } else {
+      setSortCol(col);
+      setSortAsc(true);
+    }
     setPage(0);
   };
+
+  const SortHeader = ({ col, children }: { col: SortCol; children: React.ReactNode }) => (
+    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort(col)}>
+      <div className="flex items-center gap-1">
+        {children}
+        {sortCol === col && (sortAsc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+      </div>
+    </TableHead>
+  );
 
   const openCount = allItems.filter((s: any) => s.status === 'aberto').length;
   const urgentCount = allItems.filter((s: any) => {
@@ -95,15 +158,18 @@ const MinhasSolicitacoes = () => {
           <Input className="pl-10" placeholder="Buscar por ticket, processo ou funcionário..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
         </div>
         <div className="flex gap-4">
-          {[
-            { value: 'aberto', label: 'Abertas' },
-            { value: 'em_atendimento', label: 'Em atendimento' },
-          ].map(f => (
-            <label key={f.value} className="flex items-center gap-2 text-sm">
-              <Checkbox checked={statusFilters.includes(f.value)} onCheckedChange={() => toggleFilter(f.value)} />
-              {f.label}
-            </label>
-          ))}
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={filterAberto} onCheckedChange={() => { setFilterAberto(!filterAberto); setPage(0); }} />
+            Abertas
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={filterEmAtendimento} onCheckedChange={() => { setFilterEmAtendimento(!filterEmAtendimento); setPage(0); }} />
+            Em atendimento
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={filterEmRevisao} onCheckedChange={() => { setFilterEmRevisao(!filterEmRevisao); setPage(0); }} />
+            Em revisão
+          </label>
         </div>
       </Card>
 
@@ -113,62 +179,59 @@ const MinhasSolicitacoes = () => {
         <Card className="p-6 text-center"><p className="text-3xl font-bold text-primary">{pendingDocs}</p><p className="text-sm text-muted-foreground">Docs pendentes (total)</p></Card>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-4">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32 w-full" />)}
-        </div>
-      ) : allItems.length === 0 ? (
-        <Card className="p-12 text-center">
-          <p className="text-4xl mb-2">📂</p>
-          <p className="text-lg font-semibold text-foreground">Nenhuma solicitação encontrada</p>
-          <p className="text-muted-foreground text-sm">Tente ajustar os filtros de busca</p>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {pagedItems.map((s: any) => {
-            const myDocs = s.documents?.filter((d: any) =>
-              myAssignments.some(a => a.area_id === d.responsible_area_id && a.operation_id === s.operation_id)
-            ) || [];
-            const doneDocs = myDocs.filter((d: any) => d.status === 'enviado' || d.status === 'inexistente').length;
-            const progress = myDocs.length > 0 ? (doneDocs / myDocs.length) * 100 : 0;
-            const deadlineInfo = s.deadline ? getDeadlineInfo(s.deadline) : null;
-
-            return (
-              <Card key={s.id} className="p-6 hover:shadow-md transition-shadow">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <StatusBadge status={s.status} />
-                      <span className="text-lg font-bold text-foreground">{s.ticket_id}</span>
-                    </div>
-                    <div className="flex gap-4 text-sm text-muted-foreground mb-1">
-                      <span className="flex items-center gap-1"><Building2 className="h-3 w-3" /> {(s.operations as any)?.name}</span>
-                      <span className="flex items-center gap-1"><User className="h-3 w-3" /> {s.employee_name}</span>
+      <Card className="overflow-hidden">
+        {isLoading ? (
+          <div className="p-6 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortHeader col="ticket_id">Ticket</SortHeader>
+                <SortHeader col="status">Status</SortHeader>
+                <SortHeader col="operation">Operação</SortHeader>
+                <SortHeader col="process_number">Nº Processo</SortHeader>
+                <SortHeader col="employee_name">Funcionário</SortHeader>
+                <SortHeader col="employee_registration">Matrícula</SortHeader>
+                <SortHeader col="deadline">Prazo</SortHeader>
+                <SortHeader col="progress">Progresso</SortHeader>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pagedItems.map((s: any) => {
+                const deadlineInfo = s.deadline ? getDeadlineInfo(s.deadline) : null;
+                const prog = getDocProgress(s);
+                return (
+                  <TableRow
+                    key={s.id}
+                    className="cursor-pointer hover:bg-accent/50"
+                    onClick={() => navigate(`/minhas-solicitacoes/${s.id}`)}
+                  >
+                    <TableCell><span className="font-semibold text-primary">{s.ticket_id}</span></TableCell>
+                    <TableCell><StatusBadge status={s.status} /></TableCell>
+                    <TableCell className="text-sm">{(s.operations as any)?.name}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{s.process_number || '—'}</TableCell>
+                    <TableCell className="text-sm">{s.employee_name}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{(s as any).employee_registration || '—'}</TableCell>
+                    <TableCell className="text-sm">
                       {deadlineInfo && (
-                        <span className={`flex items-center gap-1 ${deadlineInfo.className}`}>
-                          <CalendarDays className="h-3 w-3" /> {deadlineInfo.label}
+                        <span className={deadlineInfo.className}>
+                          {new Date(s.deadline + 'T00:00:00').toLocaleDateString('pt-BR')}
                         </span>
                       )}
-                    </div>
-                    {s.process_number && (
-                      <p className="text-sm text-muted-foreground mb-2">
-                        <FileText className="h-3 w-3 inline mr-1" />Processo: {s.process_number}
-                      </p>
-                    )}
-                    <div className="mb-2">
-                      <Progress value={progress} className="h-2" />
-                      <p className="text-xs text-muted-foreground mt-1">Pendentes: {myDocs.length - doneDocs} de {myDocs.length}</p>
-                    </div>
-                  </div>
-                  <Button variant="outline" className="text-primary border-primary" onClick={() => navigate(`/minhas-solicitacoes/${s.id}`)}>
-                    Abrir
-                  </Button>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{prog.done}/{prog.total}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+        {!isLoading && pagedItems.length === 0 && (
+          <div className="p-12 text-center text-muted-foreground">Nenhuma solicitação encontrada</div>
+        )}
+      </Card>
 
       {totalPages > 1 && (
         <div className="flex justify-center gap-2 mt-4">
