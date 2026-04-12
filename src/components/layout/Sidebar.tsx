@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, LayoutDashboard, PlusCircle, List, FileText, Bell, FolderOpen, Settings, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,14 +15,15 @@ interface MenuItem {
 interface SidebarProps {
   mobileOpen?: boolean;
   onClose?: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-const Sidebar = ({ mobileOpen, onClose }: SidebarProps) => {
+const Sidebar = ({ mobileOpen, onClose, collapsed = false, onToggleCollapse }: SidebarProps) => {
   const { profile } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const [collapsed, setCollapsed] = useState(false);
 
   const juridicoItems: MenuItem[] = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
@@ -65,8 +65,6 @@ const Sidebar = ({ mobileOpen, onClose }: SidebarProps) => {
     if (isMobile && onClose) onClose();
   };
 
-  const sidebarWidth = collapsed ? 'w-16' : 'w-64';
-
   if (isMobile) {
     if (!mobileOpen) return null;
     return (
@@ -98,6 +96,8 @@ const Sidebar = ({ mobileOpen, onClose }: SidebarProps) => {
     );
   }
 
+  const sidebarWidth = collapsed ? 'w-16' : 'w-64';
+
   return (
     <aside className={cn("fixed left-0 top-16 h-[calc(100vh-64px)] bg-card border-r transition-all duration-300 z-40 flex flex-col", sidebarWidth)}>
       <nav className="flex-1 py-4">
@@ -125,11 +125,11 @@ const Sidebar = ({ mobileOpen, onClose }: SidebarProps) => {
               </Tooltip>
             );
           }
-          return btn;
+          return <div key={item.path}>{btn}</div>;
         })}
       </nav>
       <div className="p-2 border-t">
-        <Button variant="ghost" size="icon" className="w-full" onClick={() => setCollapsed(c => !c)}>
+        <Button variant="ghost" size="icon" className="w-full" onClick={onToggleCollapse}>
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
       </div>
@@ -137,5 +137,4 @@ const Sidebar = ({ mobileOpen, onClose }: SidebarProps) => {
   );
 };
 
-export { Sidebar };
 export default Sidebar;
