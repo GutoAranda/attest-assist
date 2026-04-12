@@ -130,7 +130,7 @@ const DetalheTicketAtendente = () => {
         const { error: upErr } = await supabase.storage.from('solicitations').upload(path, state.file);
         if (upErr) throw upErr;
         const { data: urlData } = supabase.storage.from('solicitations').getPublicUrl(path);
-        fileUrl = urlData.publicUrl;
+        fileUrl = urlData.publicUrl || '';
 
         await supabase.from('attachments').insert({
           solicitation_id: id!,
@@ -182,6 +182,15 @@ const DetalheTicketAtendente = () => {
         action: 'Comentário adicionado',
         details: comment,
       });
+      // Notify juridico requester
+      if (solicitation?.requester_id && solicitation.requester_id !== profile.id) {
+        await supabase.from('notifications').insert({
+          user_id: solicitation.requester_id,
+          type: 'comentario',
+          message: `Novo comentário em ${solicitation.ticket_id}`,
+          solicitation_id: id!,
+        });
+      }
       setComment('');
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });

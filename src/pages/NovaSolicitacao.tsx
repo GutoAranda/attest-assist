@@ -126,12 +126,8 @@ const NovaSolicitacao = () => {
     try {
       let ticketId: string | null = null;
       if (!asDraft) {
-        const year = new Date().getFullYear();
-        const { count } = await supabase
-          .from('solicitations')
-          .select('*', { count: 'exact', head: true });
-        const seq = ((count || 0) + 1).toString().padStart(6, '0');
-        ticketId = '#SOL-' + year + '-' + seq;
+        const { data: tid } = await supabase.rpc('generate_ticket_id');
+        ticketId = tid as string;
       }
       const status = asDraft ? 'rascunho' : 'aberto';
 
