@@ -502,23 +502,24 @@ const NovaSolicitacao = () => {
           }}
         />
 
-        <div className="space-y-3 mb-4">
-          {documents.map((doc, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <span className="text-muted-foreground text-sm w-6">{i + 1}</span>
-              <Input value={doc.name} onChange={(e) => updateDocument(i, 'name', e.target.value)} placeholder="Nome do documento" className="flex-1" />
-              <Select value={doc.area_id} onValueChange={(v) => updateDocument(i, 'area_id', v)}>
-                <SelectTrigger className="w-40"><SelectValue placeholder="Responsável" /></SelectTrigger>
-                <SelectContent>
-                  {areas.map((a: any) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <button onClick={() => removeDocument(i)} disabled={documents.length <= 1} className="text-danger hover:text-danger/80 disabled:opacity-30">
-                <Trash2 className="h-4 w-4" />
-              </button>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={documentIds} strategy={verticalListSortingStrategy}>
+            <div className="space-y-3 mb-4">
+              {documents.map((doc, i) => (
+                <SortableDocumentRow
+                  key={`doc-${i}`}
+                  id={`doc-${i}`}
+                  index={i}
+                  doc={doc}
+                  areas={areas}
+                  onUpdate={updateDocument}
+                  onRemove={removeDocument}
+                  canRemove={documents.length > 1}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
         <Button variant="ghost" size="sm" className="text-primary hover:bg-info/5" onClick={addDocument}>
           <PlusCircle className="h-4 w-4 mr-1" /> Adicionar documento
         </Button>
