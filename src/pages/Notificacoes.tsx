@@ -9,6 +9,20 @@ import { Label } from '@/components/ui/label';
 import { Check, CheckCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
+const formatRelativeTime = (dateStr: string) => {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMin < 1) return 'agora';
+  if (diffMin < 60) return `há ${diffMin} minuto${diffMin > 1 ? 's' : ''}`;
+  if (diffHours < 24) return `há ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+  if (diffDays < 30) return `há ${diffDays} dia${diffDays > 1 ? 's' : ''}`;
+  return date.toLocaleDateString('pt-BR');
+};
+
 const notifStyles: Record<string, string> = {
   nova_solicitacao: 'border-l-4 border-l-primary bg-info/5',
   conclusao: 'border-l-4 border-l-success bg-success/5',
@@ -113,7 +127,7 @@ const Notificacoes = () => {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-sm text-foreground">{n.message}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{new Date(n.created_at).toLocaleString('pt-BR')}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{formatRelativeTime(n.created_at)}</p>
                 </div>
                 {!n.read && (
                   <Button variant="ghost" size="icon" className="shrink-0" onClick={(e) => { e.stopPropagation(); markAsRead(n.id); }}>
