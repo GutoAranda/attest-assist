@@ -214,6 +214,7 @@ if (docs && docs.length > 0) {
             toast.error('Erro ao registrar anexo: ' + attachErr.message);
           }
         }
+      }
 
       if (!asDraft) {
         await supabase.from('audit_logs').insert({
