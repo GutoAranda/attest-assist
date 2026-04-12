@@ -198,16 +198,22 @@ if (docs && docs.length > 0) {
       for (const file of files) {
         const path = `${solId}/${Date.now()}_${file.name}`;
         const { error: upErr } = await supabase.storage.from('solicitations').upload(path, file);
-        if (!upErr) {
+     if (upErr) {
+          console.error('Upload error:', upErr);
+          toast.error('Erro no upload de ' + file.name + ': ' + upErr.message);
+        } else {
           const { data: urlData } = supabase.storage.from('solicitations').getPublicUrl(path);
-          await supabase.from('attachments').insert({
+          const { error: attachErr } = await supabase.from('attachments').insert({
             solicitation_id: solId!,
             file_name: file.name,
             file_url: urlData.publicUrl,
             uploaded_by: profile.id,
           });
+          if (attachErr) {
+            console.error('Attachment insert error:', attachErr);
+            toast.error('Erro ao registrar anexo: ' + attachErr.message);
+          }
         }
-      }
 
       if (!asDraft) {
         await supabase.from('audit_logs').insert({
