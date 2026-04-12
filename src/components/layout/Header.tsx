@@ -6,6 +6,20 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+const formatRelativeTime = (dateStr: string) => {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMin < 1) return 'agora';
+  if (diffMin < 60) return `há ${diffMin} minuto${diffMin > 1 ? 's' : ''}`;
+  if (diffHours < 24) return `há ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+  if (diffDays < 30) return `há ${diffDays} dia${diffDays > 1 ? 's' : ''}`;
+  return date.toLocaleDateString('pt-BR');
+};
+
 const Header = () => {
   const { profile, signOut } = useAuth();
   const navigate = useNavigate();
