@@ -9,10 +9,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, DocStatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2, PackageOpen, History } from 'lucide-react';
 import { toast } from 'sonner';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { openStorageFile } from '@/lib/storage';
+import { sendRevisionEmail, sendCommentEmail, sendCancelEmail, sendConclusionEmail, sendReopenEmail, getAttendeesEmails } from '@/lib/email';
+import JSZip from 'jszip';
 
 const DetalheTicketJuridico = () => {
   const { id } = useParams();
@@ -28,13 +30,23 @@ const DetalheTicketJuridico = () => {
   const [revisionDialog, setRevisionDialog] = useState<string | null>(null);
   const [revisionReason, setRevisionReason] = useState('');
   const [revising, setRevising] = useState(false);
+  const [reopenDialog, setReopenDialog] = useState(false);
+  const [reopenReason, setReopenReason] = useState('');
+  const [reopening, setReopening] = useState(false);
+  const [zipping, setZipping] = useState(false);
+  const [expandedVersions, setExpandedVersions] = useState<Record<string, boolean>>({});
+
+  // Typing indicator
+  const [typingUser, setTypingUser] = useState<string | null>(null);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const channelRef = useRef<any>(null);
 
   const { data: solicitation, isLoading } = useQuery({
     queryKey: ['solicitation', id],
     queryFn: async () => {
       const { data } = await supabase
         .from('solicitations')
-        .select('*, operations(name), profiles!solicitations_requester_id_fkey(name)')
+        .select('*, operations(name), profiles!solicitations_requester_id_fkey(name, email)')
         .eq('id', id)
         .single();
       return data;
@@ -53,6 +65,14 @@ const DetalheTicketJuridico = () => {
     queryKey: ['attachments', id],
     queryFn: async () => {
       const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).is('document_id', null).order('uploaded_at');
+      return data || [];
+    },
+  });
+
+  const { data: docAttachments = [] } = useQuery({
+    queryKey: ['doc-attachments', id],
+    queryFn: async () => {
+      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).not('document_id', 'is', null).order('uploaded_at');
       return data || [];
     },
   });
@@ -81,6 +101,27 @@ const DetalheTicketJuridico = () => {
     },
   });
 
+  // Realtime typing indicator
+  useEffect(() => {
+    if (!id || !profile) return;
+    const channel = supabase.channel(`typing-${id}`);
+    channel.on('broadcast', { event: 'typing' }, (payload: any) => {
+      if (payload.payload.userId !== profile.id) {
+        setTypingUser(payload.payload.name);
+        if (typingTimeout.current) clearTimeout(typingTimeout.current);
+        typingTimeout.current = setTimeout(() => setTypingUser(null), 3000);
+      }
+    }).subscribe();
+    channelRef.current = channel;
+    return () => { supabase.removeChannel(channel); };
+  }, [id, profile]);
+
+  const broadcastTyping = () => {
+    if (channelRef.current && profile) {
+      channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { userId: profile.id, name: profile.name } });
+    }
+  };
+
   const groupedDocs = useMemo(() => {
     const groups: Record<string, { areaName: string; docs: any[] }> = {};
     documents.forEach((doc: any) => {
@@ -91,6 +132,10 @@ const DetalheTicketJuridico = () => {
     });
     return groups;
   }, [documents]);
+
+  const getDocVersions = (docId: string) => {
+    return docAttachments.filter((a: any) => a.document_id === docId).sort((a: any, b: any) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime());
+  };
 
   const sendComment = async () => {
     if (!comment.trim() || !profile) return;
@@ -106,6 +151,11 @@ const DetalheTicketJuridico = () => {
           if (userId !== profile.id) {
             await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
           }
+        }
+        // Send emails to attendees
+        const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
+        for (const email of emails) {
+          await sendCommentEmail(email, id!, solicitation.ticket_id!, comment, profile.name, 'atendente');
         }
       }
       setComment('');
@@ -129,6 +179,9 @@ const DetalheTicketJuridico = () => {
         for (const userId of uniqueUsers) {
           await supabase.from('notifications').insert({ user_id: userId, type: 'cancelamento', message: `Solicitação ${solicitation.ticket_id} foi cancelada`, solicitation_id: id! });
         }
+        // Send cancel email
+        const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
+        await sendCancelEmail(emails, id!, solicitation.ticket_id!, cancelReason, (solicitation.operations as any)?.name, solicitation.employee_name || '');
       }
       queryClient.invalidateQueries();
       setCancelDialog(false);
@@ -154,6 +207,8 @@ const DetalheTicketJuridico = () => {
         for (const a of assignments || []) {
           await supabase.from('notifications').insert({ user_id: a.user_id, type: 'revisao', message: `Revisão solicitada no documento "${(doc as any).document_name}" do ticket ${solicitation.ticket_id}`, solicitation_id: id! });
         }
+        // Send revision email
+        await sendRevisionEmail((doc as any).responsible_area_id, solicitation.operation_id, id!, solicitation.ticket_id!, (doc as any).document_name, revisionReason, (solicitation.operations as any)?.name, solicitation.employee_name || '');
       }
       queryClient.invalidateQueries();
       setRevisionDialog(null);
@@ -163,6 +218,87 @@ const DetalheTicketJuridico = () => {
       setRevising(false);
     }
   };
+
+  const handleReopen = async () => {
+    if (!reopenReason.trim()) { toast.error('Informe o motivo'); return; }
+    setReopening(true);
+    try {
+      await supabase.from('solicitations').update({ status: 'em_atendimento', concluded_at: null }).eq('id', id);
+      await supabase.from('area_conclusions').delete().eq('solicitation_id', id!);
+      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile!.id, action: 'Solicitação reaberta', details: `Motivo: ${reopenReason}` });
+
+      const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
+      if (solicitation) {
+        const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
+        const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
+        for (const userId of uniqueUsers) {
+          await supabase.from('notifications').insert({ user_id: userId, type: 'reabertura', message: `Solicitação ${solicitation.ticket_id} foi reaberta`, solicitation_id: id! });
+        }
+        // Send reopen emails per area
+        for (const areaId of areaIds) {
+          const areaDocs = documents.filter((d: any) => d.responsible_area_id === areaId);
+          await sendReopenEmail(areaId, solicitation.operation_id, id!, solicitation.ticket_id!, reopenReason, (solicitation.operations as any)?.name, solicitation.employee_name || '', areaDocs);
+        }
+      }
+      queryClient.invalidateQueries();
+      setReopenDialog(false);
+      setReopenReason('');
+      toast.success('Solicitação reaberta');
+    } finally {
+      setReopening(false);
+    }
+  };
+
+  const handleDownloadZip = async () => {
+    setZipping(true);
+    try {
+      const zip = new JSZip();
+      const allFiles: { name: string; url: string }[] = [];
+
+      documents.forEach((doc: any) => {
+        if (doc.file_url) allFiles.push({ name: `documentos/${doc.document_name}${getFileExtFromUrl(doc.file_url)}`, url: doc.file_url });
+      });
+      attachments.forEach((a: any) => {
+        allFiles.push({ name: `anexos/${a.file_name}`, url: a.file_url });
+      });
+      docAttachments.forEach((a: any) => {
+        allFiles.push({ name: `versoes/${a.file_name}`, url: a.file_url });
+      });
+
+      for (const file of allFiles) {
+        try {
+          const url = file.url.includes('/storage/v1/object/public/') ? file.url : file.url.replace('/object/sign/', '/object/public/').split('?')[0];
+          const response = await fetch(url);
+          if (response.ok) {
+            const blob = await response.blob();
+            zip.file(file.name, blob);
+          }
+        } catch (err) {
+          console.error('Failed to fetch file:', file.name, err);
+        }
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${solicitation?.ticket_id || 'documentos'}_documentos.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('ZIP baixado com sucesso!');
+    } catch (err) {
+      toast.error('Erro ao gerar ZIP');
+    } finally {
+      setZipping(false);
+    }
+  };
+
+  const getFileExtFromUrl = (url: string) => {
+    const match = url.match(/\.(\w+)(?:\?|$)/);
+    return match ? `.${match[1]}` : '';
+  };
+
+  const hasFiles = documents.some((d: any) => d.file_url) || attachments.length > 0 || docAttachments.length > 0;
 
   if (isLoading) return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -179,29 +315,39 @@ const DetalheTicketJuridico = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <Card className="p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
+      <Card className="p-4 md:p-6 mb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-2">
           <Button variant="ghost" size="sm" onClick={() => navigate('/solicitacoes')}>
             <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
           </Button>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {hasFiles && (
+              <Button variant="outline" size="sm" onClick={handleDownloadZip} disabled={zipping}>
+                {zipping ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <PackageOpen className="h-4 w-4 mr-1" />} Baixar todos (ZIP)
+              </Button>
+            )}
             {solicitation.status === 'aberto' && (
               <Button variant="outline" size="sm" onClick={() => navigate(`/nova-solicitacao?editar=${id}`)}>
                 <Edit className="h-4 w-4 mr-1" /> Editar
               </Button>
             )}
+            {solicitation.status === 'concluido' && (
+              <Button variant="outline" size="sm" className="text-warning border-warning hover:bg-warning/10" onClick={() => setReopenDialog(true)}>
+                <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
+              </Button>
+            )}
             {solicitation.status !== 'cancelado' && solicitation.status !== 'concluido' && (
               <Button variant="destructive" size="sm" onClick={() => setCancelDialog(true)}>
-                <XCircle className="h-4 w-4 mr-1" /> Cancelar solicitação
+                <XCircle className="h-4 w-4 mr-1" /> Cancelar
               </Button>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3 mb-4">
-          <h1 className="text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <h1 className="text-xl md:text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
           <StatusBadge status={solicitation.status as any} />
         </div>
-        <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
           <div><p className="text-sm text-muted-foreground">Operação</p><p className="font-semibold">{(solicitation.operations as any)?.name}</p></div>
           <div><p className="text-sm text-muted-foreground">Nº Processo</p><p className="font-semibold text-sm">{solicitation.process_number || '—'}</p></div>
           <div><p className="text-sm text-muted-foreground">Funcionário</p><p className="font-semibold">{solicitation.employee_name}</p></div>
@@ -212,7 +358,7 @@ const DetalheTicketJuridico = () => {
             {deadlineInfo && <p className={`font-semibold ${deadlineInfo.className}`}>{new Date(solicitation.deadline + 'T00:00:00').toLocaleDateString('pt-BR')} ({deadlineInfo.label})</p>}
           </div>
         </div>
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-4">
           {Object.entries(groupedDocs).map(([areaId, { areaName }]) => {
             const concluded = areaConclusions.some((c: any) => c.area_id === areaId);
             return (
@@ -223,7 +369,7 @@ const DetalheTicketJuridico = () => {
           })}
         </div>
         {solicitation.observations && (
-          <div className="bg-[hsl(48,100%,96%)] border-l-4 border-[hsl(48,96%,53%)] p-3 rounded text-sm">
+          <div className="bg-[hsl(48,100%,96%)] dark:bg-warning/10 border-l-4 border-[hsl(48,96%,53%)] p-3 rounded text-sm">
             <strong>Observações:</strong> {solicitation.observations}
           </div>
         )}
@@ -236,11 +382,11 @@ const DetalheTicketJuridico = () => {
 
       {/* Solicitation Attachments */}
       {attachments.length > 0 && (
-        <Card className="p-6 mb-6">
+        <Card className="p-4 md:p-6 mb-6">
           <h2 className="text-lg font-semibold text-primary mb-4">Anexos da Solicitação</h2>
           <div className="space-y-2">
             {attachments.map((a: any) => (
-              <div key={a.id} className="flex items-center gap-3 p-3 bg-accent rounded-lg">
+              <div key={a.id} className="flex items-center gap-3 p-3 bg-accent rounded-lg flex-wrap">
                 <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm flex-1 truncate">{a.file_name}</span>
                 <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
@@ -255,39 +401,70 @@ const DetalheTicketJuridico = () => {
 
       {/* Documents grouped by area */}
       {Object.entries(groupedDocs).map(([areaId, { areaName, docs }]) => (
-        <Card key={areaId} className="p-6 mb-6">
+        <Card key={areaId} className="p-4 md:p-6 mb-6">
           <h2 className="text-lg font-semibold text-primary mb-4">Documentos — {areaName}</h2>
-          {docs.map((doc: any) => (
-            <div key={doc.id} className="bg-accent rounded-lg p-4 mb-3 border">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold">{doc.document_name}</span>
-                <div className="flex items-center gap-2">
-                  <DocStatusBadge status={doc.status} />
-                  {(doc.status === 'enviado' || doc.status === 'inexistente') && solicitation.status !== 'cancelado' && (
-                    <Button variant="ghost" size="sm" className="text-status-revision" onClick={() => setRevisionDialog(doc.id)}>
-                      <RotateCcw className="h-4 w-4 mr-1" /> Solicitar revisão
-                    </Button>
-                  )}
+          {docs.map((doc: any) => {
+            const versions = getDocVersions(doc.id);
+            const hasVersions = versions.length > 1 || (versions.length > 0 && doc.revision_reason);
+            return (
+              <div key={doc.id} className="bg-accent rounded-lg p-4 mb-3 border">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="font-semibold">{doc.document_name}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <DocStatusBadge status={doc.status} />
+                    {(doc.status === 'enviado' || doc.status === 'inexistente') && solicitation.status !== 'cancelado' && (
+                      <Button variant="ghost" size="sm" className="text-status-revision" onClick={() => setRevisionDialog(doc.id)}>
+                        <RotateCcw className="h-4 w-4 mr-1" /> Solicitar revisão
+                      </Button>
+                    )}
+                  </div>
                 </div>
+                {doc.observations && <p className="text-sm text-muted-foreground mt-2">{doc.observations}</p>}
+                {doc.file_url && (
+                  <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto" onClick={() => openStorageFile(doc.file_url)}>
+                    <Download className="h-3 w-3 mr-1" /> Ver arquivo
+                  </Button>
+                )}
+                {doc.revision_reason && (
+                  <div className="bg-status-revision/10 border-l-4 border-status-revision p-2 mt-2 rounded text-sm">
+                    <strong>Motivo da revisão:</strong> {doc.revision_reason}
+                  </div>
+                )}
+                {/* Version history */}
+                {hasVersions && (
+                  <div className="mt-2">
+                    <button
+                      className="text-xs text-info flex items-center gap-1 hover:underline"
+                      onClick={() => setExpandedVersions(prev => ({ ...prev, [doc.id]: !prev[doc.id] }))}
+                    >
+                      <History className="h-3 w-3" /> Ver histórico de versões ({versions.length} {versions.length === 1 ? 'versão' : 'versões'})
+                    </button>
+                    {expandedVersions[doc.id] && (
+                      <div className="mt-2 space-y-2 pl-4 border-l-2 border-info/30">
+                        {versions.map((v: any, idx: number) => (
+                          <div key={v.id} className="text-sm">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-foreground">Versão {idx + 1}</span>
+                              <span className="text-xs text-muted-foreground">{v.file_name}</span>
+                              <span className="text-xs text-muted-foreground">por {(v.profiles as any)?.name} • {new Date(v.uploaded_at).toLocaleString('pt-BR')}</span>
+                              <Button variant="ghost" size="sm" className="text-info h-auto p-0 text-xs" onClick={() => openStorageFile(v.file_url)}>
+                                <Download className="h-3 w-3 mr-1" /> Baixar
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              {doc.observations && <p className="text-sm text-muted-foreground mt-2">{doc.observations}</p>}
-              {doc.file_url && (
-                <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto" onClick={() => openStorageFile(doc.file_url)}>
-                  <Download className="h-3 w-3 mr-1" /> Ver arquivo
-                </Button>
-              )}
-              {doc.revision_reason && (
-                <div className="bg-status-revision/10 border-l-4 border-status-revision p-2 mt-2 rounded text-sm">
-                  <strong>Motivo da revisão:</strong> {doc.revision_reason}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </Card>
       ))}
 
       {/* Comments */}
-      <Card className="p-6 mb-6">
+      <Card className="p-4 md:p-6 mb-6">
         <h2 className="text-lg font-semibold text-primary mb-4">Comentários</h2>
         <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
           {comments.map((c: any) => (
@@ -301,9 +478,12 @@ const DetalheTicketJuridico = () => {
           ))}
           {comments.length === 0 && <p className="text-muted-foreground text-center">Nenhum comentário</p>}
         </div>
+        {typingUser && (
+          <p className="text-xs text-muted-foreground mb-2 animate-pulse">{typingUser} está digitando...</p>
+        )}
         {solicitation.status !== 'cancelado' && solicitation.status !== 'concluido' && (
           <div className="flex gap-2">
-            <Textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Escreva um comentário..." className="flex-1" />
+            <Textarea value={comment} onChange={(e) => { setComment(e.target.value); broadcastTyping(); }} rows={2} placeholder="Escreva um comentário..." className="flex-1" />
             <Button size="sm" className="self-end" disabled={!comment.trim() || sendingComment} onClick={sendComment}>
               {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-1" /> Enviar</>}
             </Button>
@@ -312,7 +492,7 @@ const DetalheTicketJuridico = () => {
       </Card>
 
       {/* Audit */}
-      <Card className="p-6 mb-6">
+      <Card className="p-4 md:p-6 mb-6">
         <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
           <CollapsibleTrigger className="flex items-center gap-2 text-lg font-semibold text-primary cursor-pointer">
             <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
@@ -320,7 +500,7 @@ const DetalheTicketJuridico = () => {
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-4 space-y-2">
             {auditLogs.map((log: any) => (
-              <div key={log.id} className="flex gap-3 text-sm p-2 border-b">
+              <div key={log.id} className="flex gap-3 text-sm p-2 border-b flex-wrap">
                 <span className="text-muted-foreground whitespace-nowrap">{new Date(log.created_at).toLocaleString('pt-BR')}</span>
                 <div>
                   <span className="font-medium">{log.action}</span>
@@ -335,13 +515,13 @@ const DetalheTicketJuridico = () => {
 
       {/* Cancel Dialog */}
       <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] md:max-w-lg">
           <DialogHeader><DialogTitle>Cancelar solicitação</DialogTitle></DialogHeader>
           <DialogDescription>Tem certeza? Informe o motivo do cancelamento.</DialogDescription>
           <Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Motivo do cancelamento *" rows={3} />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelDialog(false)}>Voltar</Button>
-            <Button variant="destructive" onClick={handleCancel} disabled={cancelling}>
+          <DialogFooter className="flex-col md:flex-row gap-2">
+            <Button variant="outline" onClick={() => setCancelDialog(false)} className="w-full md:w-auto">Voltar</Button>
+            <Button variant="destructive" onClick={handleCancel} disabled={cancelling} className="w-full md:w-auto">
               {cancelling ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Confirmar cancelamento
             </Button>
           </DialogFooter>
@@ -350,14 +530,29 @@ const DetalheTicketJuridico = () => {
 
       {/* Revision Dialog */}
       <Dialog open={!!revisionDialog} onOpenChange={() => setRevisionDialog(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] md:max-w-lg">
           <DialogHeader><DialogTitle>Solicitar revisão</DialogTitle></DialogHeader>
           <DialogDescription>Informe o motivo da devolutiva.</DialogDescription>
           <Textarea value={revisionReason} onChange={(e) => setRevisionReason(e.target.value)} placeholder="Motivo da devolutiva *" rows={3} />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRevisionDialog(null)}>Cancelar</Button>
-            <Button onClick={handleRevision} disabled={revising}>
+          <DialogFooter className="flex-col md:flex-row gap-2">
+            <Button variant="outline" onClick={() => setRevisionDialog(null)} className="w-full md:w-auto">Cancelar</Button>
+            <Button onClick={handleRevision} disabled={revising} className="w-full md:w-auto">
               {revising ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Solicitar revisão
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reopen Dialog */}
+      <Dialog open={reopenDialog} onOpenChange={setReopenDialog}>
+        <DialogContent className="max-w-[95vw] md:max-w-lg">
+          <DialogHeader><DialogTitle>Reabrir solicitação</DialogTitle></DialogHeader>
+          <DialogDescription>Deseja reabrir esta solicitação? Informe o motivo.</DialogDescription>
+          <Textarea value={reopenReason} onChange={(e) => setReopenReason(e.target.value)} placeholder="Motivo da reabertura *" rows={3} />
+          <DialogFooter className="flex-col md:flex-row gap-2">
+            <Button variant="outline" onClick={() => setReopenDialog(false)} className="w-full md:w-auto">Cancelar</Button>
+            <Button onClick={handleReopen} disabled={reopening} className="w-full md:w-auto">
+              {reopening ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Reabrir solicitação
             </Button>
           </DialogFooter>
         </DialogContent>
