@@ -18,11 +18,17 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { buildStoragePublicUrl } from '@/lib/storage';
 
 interface DocumentRow {
   name: string;
   area_id: string;
 }
+
+const isMissingDuplicateRpc = (error: { code?: string; message?: string } | null) => {
+  if (!error) return false;
+  return error.code === 'PGRST202' || error.message?.includes('Could not find the function');
+};
 
 const NovaSolicitacao = () => {
   const { profile } = useAuth();
@@ -84,24 +90,82 @@ const NovaSolicitacao = () => {
   }, [editId]);
 
   const checkDuplicate = async () => {
-    if (!processNumber) return;
-    const { data } = await supabase.rpc('check_duplicate_process', {
-      p_number: processNumber,
+    const trimmedProcessNumber = processNumber.trim();
+    if (!trimmedProcessNumber) return;
+
+    const { data, error } = await supabase.rpc('check_duplicate_process', {
+      p_number: trimmedProcessNumber,
       p_exclude_id: editId || null,
     });
-    if (data && data.length > 0) {
-      setDuplicateDialog(data[0].ticket_id!);
+
+    let result = data;
+
+    if (error && isMissingDuplicateRpc(error)) {
+      let fallbackQuery = supabase
+        .from('solicitations')
+        .select('ticket_id')
+        .eq('process_number', trimmedProcessNumber)
+        .neq('status', 'rascunho')
+        .limit(1);
+
+      if (editId) {
+        fallbackQuery = fallbackQuery.neq('id', editId);
+      }
+
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+      if (fallbackError) {
+        toast.error('Não foi possível validar a duplicidade do processo.');
+        return;
+      }
+
+      result = fallbackData;
+    } else if (error) {
+      toast.error('Não foi possível validar a duplicidade do processo.');
+      return;
+    }
+
+    if (result && result.length > 0) {
+      setDuplicateDialog(result[0].ticket_id!);
     }
   };
 
   const checkEmployeeDuplicate = async () => {
-    if (!employeeName) return;
-    const { data } = await supabase.rpc('check_duplicate_employee', {
-      p_name: employeeName,
+    const trimmedEmployeeName = employeeName.trim();
+    if (!trimmedEmployeeName) return;
+
+    const { data, error } = await supabase.rpc('check_duplicate_employee', {
+      p_name: trimmedEmployeeName,
       p_exclude_id: editId || null,
     });
-    if (data && data.length > 0) {
-      setEmployeeDuplicateDialog({ tickets: data as any });
+
+    let result = data;
+
+    if (error && isMissingDuplicateRpc(error)) {
+      let fallbackQuery = supabase
+        .from('solicitations')
+        .select('ticket_id, process_number')
+        .ilike('employee_name', trimmedEmployeeName)
+        .neq('status', 'rascunho')
+        .limit(5);
+
+      if (editId) {
+        fallbackQuery = fallbackQuery.neq('id', editId);
+      }
+
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+      if (fallbackError) {
+        toast.error('Não foi possível validar a duplicidade do funcionário.');
+        return;
+      }
+
+      result = fallbackData;
+    } else if (error) {
+      toast.error('Não foi possível validar a duplicidade do funcionário.');
+      return;
+    }
+
+    if (result && result.length > 0) {
+      setEmployeeDuplicateDialog({ tickets: result as any });
     }
   };
 
@@ -202,11 +266,10 @@ const NovaSolicitacao = () => {
           console.error('Upload error:', upErr);
           toast.error('Erro no upload de ' + file.name + ': ' + upErr.message);
         } else {
-          const { data: urlData } = supabase.storage.from('solicitations').getPublicUrl(path);
           const { error: attachErr } = await supabase.from('attachments').insert({
             solicitation_id: solId!,
             file_name: file.name,
-            file_url: urlData.publicUrl,
+            file_url: buildStoragePublicUrl('solicitations', path),
             uploaded_by: profile.id,
           });
           if (attachErr) {

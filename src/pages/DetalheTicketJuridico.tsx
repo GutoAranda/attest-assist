@@ -12,20 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useMemo } from 'react';
-
-const downloadFile = async (fileUrl: string, fileName: string) => {
-  if (fileUrl.includes('/storage/v1/object/public/')) {
-    window.open(fileUrl, '_blank');
-  } else {
-    // Try signed URL fallback
-    const path = fileUrl.split('/storage/v1/object/')[1]?.replace(/^(sign|public)\//, '') || fileUrl;
-    const bucket = path.split('/')[0];
-    const filePath = path.split('/').slice(1).join('/');
-    const { data } = await supabase.storage.from(bucket).createSignedUrl(filePath, 3600);
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank');
-    else window.open(fileUrl, '_blank');
-  }
-};
+import { openStorageFile } from '@/lib/storage';
 
 const DetalheTicketJuridico = () => {
   const { id } = useParams();
@@ -257,7 +244,7 @@ const DetalheTicketJuridico = () => {
                 <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm flex-1 truncate">{a.file_name}</span>
                 <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
-                <Button variant="ghost" size="sm" onClick={() => downloadFile(a.file_url, a.file_name)}>
+                <Button variant="ghost" size="sm" onClick={() => openStorageFile(a.file_url)}>
                   <Download className="h-4 w-4" /> Baixar
                 </Button>
               </div>
@@ -285,7 +272,7 @@ const DetalheTicketJuridico = () => {
               </div>
               {doc.observations && <p className="text-sm text-muted-foreground mt-2">{doc.observations}</p>}
               {doc.file_url && (
-                <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto" onClick={() => downloadFile(doc.file_url, doc.document_name)}>
+                <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto" onClick={() => openStorageFile(doc.file_url)}>
                   <Download className="h-3 w-3 mr-1" /> Ver arquivo
                 </Button>
               )}
