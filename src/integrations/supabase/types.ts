@@ -371,6 +371,7 @@ export type Database = {
           created_at: string
           deadline: string | null
           employee_name: string | null
+          employee_registration: string | null
           id: string
           observations: string | null
           operation_id: string
@@ -385,6 +386,7 @@ export type Database = {
           created_at?: string
           deadline?: string | null
           employee_name?: string | null
+          employee_registration?: string | null
           id?: string
           observations?: string | null
           operation_id: string
@@ -399,6 +401,7 @@ export type Database = {
           created_at?: string
           deadline?: string | null
           employee_name?: string | null
+          employee_registration?: string | null
           id?: string
           observations?: string | null
           operation_id?: string

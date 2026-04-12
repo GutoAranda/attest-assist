@@ -9,10 +9,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Trash2, Paperclip, FileText } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, Paperclip, FileText, Loader2 } from 'lucide-react';
 import BulkDocumentImport from '@/components/BulkDocumentImport';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -34,13 +34,14 @@ const NovaSolicitacao = () => {
   const [operationId, setOperationId] = useState('');
   const [processNumber, setProcessNumber] = useState('');
   const [employeeName, setEmployeeName] = useState('');
+  const [employeeRegistration, setEmployeeRegistration] = useState('');
   const [deadline, setDeadline] = useState<Date>();
   const [observations, setObservations] = useState('');
   const [documents, setDocuments] = useState<DocumentRow[]>([{ name: '', area_id: '' }]);
   const [files, setFiles] = useState<File[]>([]);
   const [duplicateDialog, setDuplicateDialog] = useState<string | null>(null);
+  const [employeeDuplicateDialog, setEmployeeDuplicateDialog] = useState<{ tickets: { ticket_id: string; process_number: string }[] } | null>(null);
   const [cancelDialog, setCancelDialog] = useState(false);
-  const [noAttendantDialog, setNoAttendantDialog] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { data: operations = [] } = useQuery({
@@ -59,7 +60,6 @@ const NovaSolicitacao = () => {
     },
   });
 
-  // Load existing solicitation for editing
   useEffect(() => {
     if (editId) {
       (async () => {
@@ -68,6 +68,7 @@ const NovaSolicitacao = () => {
           setOperationId(sol.operation_id);
           setProcessNumber(sol.process_number || '');
           setEmployeeName(sol.employee_name || '');
+          setEmployeeRegistration((sol as any).employee_registration || '');
           setObservations(sol.observations || '');
           if (sol.deadline) setDeadline(new Date(sol.deadline + 'T00:00:00'));
         }
@@ -89,6 +90,19 @@ const NovaSolicitacao = () => {
       .limit(1);
     if (data && data.length > 0) {
       setDuplicateDialog(data[0].ticket_id!);
+    }
+  };
+
+  const checkEmployeeDuplicate = async () => {
+    if (!employeeName) return;
+    const { data } = await supabase
+      .from('solicitations')
+      .select('ticket_id, process_number')
+      .ilike('employee_name', employeeName)
+      .neq('id', editId || '')
+      .limit(5);
+    if (data && data.length > 0) {
+      setEmployeeDuplicateDialog({ tickets: data as any });
     }
   };
 
@@ -139,12 +153,12 @@ const NovaSolicitacao = () => {
           operation_id: operationId,
           process_number: processNumber || null,
           employee_name: employeeName || null,
+          employee_registration: employeeRegistration || null,
           observations: observations || null,
           status,
           deadline: deadline ? format(deadline, 'yyyy-MM-dd') : null,
-        }).eq('id', editId);
+        } as any).eq('id', editId);
 
-        // Delete old docs and re-insert
         await supabase.from('documents').delete().eq('solicitation_id', editId);
       } else {
         const newId = crypto.randomUUID();
@@ -156,16 +170,16 @@ const NovaSolicitacao = () => {
             operation_id: operationId,
             process_number: processNumber || null,
             employee_name: employeeName || null,
+            employee_registration: employeeRegistration || null,
             requester_id: profile.id,
             observations: observations || null,
             status,
             deadline: deadline ? format(deadline, "yyyy-MM-dd") : null,
-          });
+          } as any);
         if (solErr) throw solErr;
         solId = newId;
       }
 
-      // Insert documents
       const validDocs = documents.filter(d => d.name);
       if (validDocs.length > 0) {
         await supabase.from('documents').insert(
@@ -178,7 +192,6 @@ const NovaSolicitacao = () => {
         );
       }
 
-      // Upload attachments
       for (const file of files) {
         const path = `${solId}/${Date.now()}_${file.name}`;
         const { error: upErr } = await supabase.storage.from('solicitations').upload(path, file);
@@ -201,7 +214,6 @@ const NovaSolicitacao = () => {
           details: `Ticket ${ticketId} ${editId ? 'atualizado' : 'criado'} por ${profile.name}`,
         });
 
-        // Notify relevant attendants
         for (const doc of validDocs) {
           const { data: assignments } = await supabase
             .from('user_group_assignments')
@@ -272,7 +284,11 @@ const NovaSolicitacao = () => {
           </div>
           <div>
             <Label>Funcionário *</Label>
-            <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} placeholder="Nome do colaborador" />
+            <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} onBlur={checkEmployeeDuplicate} placeholder="Nome do colaborador" />
+          </div>
+          <div>
+            <Label>Matrícula</Label>
+            <Input value={employeeRegistration} onChange={(e) => setEmployeeRegistration(e.target.value)} placeholder="Matrícula (opcional)" />
           </div>
           <div>
             <Label>Solicitante</Label>
@@ -353,15 +369,20 @@ const NovaSolicitacao = () => {
 
         <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
           <Button variant="outline" className="text-muted-foreground" onClick={() => setCancelDialog(true)}>Cancelar</Button>
-          <Button className="bg-primary-light text-primary-foreground hover:bg-primary-light/90" onClick={() => save(true)} disabled={saving}>Salvar rascunho</Button>
-          <Button onClick={() => save(false)} disabled={saving}>Enviar solicitação</Button>
+          <Button className="bg-primary-light text-primary-foreground hover:bg-primary-light/90" onClick={() => save(true)} disabled={saving}>
+            {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Salvando...</> : 'Salvar rascunho'}
+          </Button>
+          <Button onClick={() => save(false)} disabled={saving}>
+            {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Enviando...</> : 'Enviar solicitação'}
+          </Button>
         </div>
       </Card>
 
+      {/* Duplicate process dialog */}
       <Dialog open={!!duplicateDialog} onOpenChange={() => setDuplicateDialog(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Processo duplicado</DialogTitle></DialogHeader>
-          <p className="text-muted-foreground">Já existe o ticket <strong>{duplicateDialog}</strong> para este processo. Deseja continuar?</p>
+          <DialogDescription>Já existe o ticket <strong>{duplicateDialog}</strong> para este número de processo. Deseja continuar?</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setDuplicateDialog(null); setProcessNumber(''); }}>Cancelar</Button>
             <Button onClick={() => setDuplicateDialog(null)}>Sim, continuar</Button>
@@ -369,10 +390,30 @@ const NovaSolicitacao = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Duplicate employee dialog */}
+      <Dialog open={!!employeeDuplicateDialog} onOpenChange={() => setEmployeeDuplicateDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Funcionário com solicitações existentes</DialogTitle></DialogHeader>
+          <DialogDescription>
+            Já existem solicitações para este funcionário:
+          </DialogDescription>
+          <ul className="list-disc pl-6 text-sm space-y-1">
+            {employeeDuplicateDialog?.tickets.map((t, i) => (
+              <li key={i}>{t.ticket_id} — Processo: {t.process_number || '—'}</li>
+            ))}
+          </ul>
+          <p className="text-sm text-muted-foreground">Deseja continuar?</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEmployeeDuplicateDialog(null); setEmployeeName(''); }}>Cancelar</Button>
+            <Button onClick={() => setEmployeeDuplicateDialog(null)}>Sim, continuar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>Cancelar solicitação?</DialogTitle></DialogHeader>
-          <p className="text-muted-foreground">Dados não salvos serão perdidos.</p>
+          <DialogDescription>Dados não salvos serão perdidos.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCancelDialog(false)}>Ficar</Button>
             <Button variant="destructive" onClick={() => navigate('/dashboard')}>Sair</Button>

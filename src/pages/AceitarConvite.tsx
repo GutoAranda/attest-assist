@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 
 const AceitarConvite = () => {
   const [password, setPassword] = useState('');
@@ -38,6 +39,7 @@ const AceitarConvite = () => {
             <span className="text-primary-foreground font-bold text-lg">LG</span>
           </div>
           <h1 className="text-lg font-semibold text-foreground">Bem-vindo à plataforma!</h1>
+          <p className="text-sm text-muted-foreground mt-1">Defina sua senha para acessar o sistema</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -50,7 +52,7 @@ const AceitarConvite = () => {
             <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repita a senha" />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Ativando...' : 'Ativar minha conta'}
+            {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Ativando...</> : 'Ativar minha conta'}
           </Button>
         </form>
       </div>

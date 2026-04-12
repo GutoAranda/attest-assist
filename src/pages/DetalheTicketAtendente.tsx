@@ -9,8 +9,22 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
-import { ChevronLeft, ChevronDown, Upload, Trash2, Send } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ChevronLeft, ChevronDown, Upload, Send, FileText, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const downloadFile = async (fileUrl: string) => {
+  if (fileUrl.includes('/storage/v1/object/public/')) {
+    window.open(fileUrl, '_blank');
+  } else {
+    const path = fileUrl.split('/storage/v1/object/')[1]?.replace(/^(sign|public)\//, '') || fileUrl;
+    const bucket = path.split('/')[0];
+    const filePath = path.split('/').slice(1).join('/');
+    const { data } = await supabase.storage.from(bucket).createSignedUrl(filePath, 3600);
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank');
+    else window.open(fileUrl, '_blank');
+  }
+};
 
 const DetalheTicketAtendente = () => {
   const { id } = useParams();
@@ -18,8 +32,10 @@ const DetalheTicketAtendente = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [comment, setComment] = useState('');
+  const [sendingComment, setSendingComment] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [docStates, setDocStates] = useState<Record<string, { status: string; observations: string; file?: File }>>({});
+  const [concluding, setConcluding] = useState(false);
 
   const { data: myAssignments = [] } = useQuery({
     queryKey: ['my-assignments', profile?.id],
@@ -31,7 +47,7 @@ const DetalheTicketAtendente = () => {
     enabled: !!profile,
   });
 
-  const { data: solicitation } = useQuery({
+  const { data: solicitation, isLoading } = useQuery({
     queryKey: ['solicitation', id],
     queryFn: async () => {
       const { data } = await supabase
@@ -46,11 +62,15 @@ const DetalheTicketAtendente = () => {
   const { data: allDocuments = [] } = useQuery({
     queryKey: ['documents', id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('documents')
-        .select('*, areas(name)')
-        .eq('solicitation_id', id)
-        .order('created_at');
+      const { data } = await supabase.from('documents').select('*, areas(name)').eq('solicitation_id', id).order('created_at');
+      return data || [];
+    },
+  });
+
+  const { data: attachments = [] } = useQuery({
+    queryKey: ['attachments', id],
+    queryFn: async () => {
+      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).is('document_id', null).order('uploaded_at');
       return data || [];
     },
   });
@@ -58,11 +78,7 @@ const DetalheTicketAtendente = () => {
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('comments')
-        .select('*, profiles(name, role)')
-        .eq('solicitation_id', id)
-        .order('created_at');
+      const { data } = await supabase.from('comments').select('*, profiles(name, role)').eq('solicitation_id', id).order('created_at');
       return data || [];
     },
   });
@@ -70,11 +86,7 @@ const DetalheTicketAtendente = () => {
   const { data: auditLogs = [] } = useQuery({
     queryKey: ['audit-logs', id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('audit_logs')
-        .select('*, profiles(name)')
-        .eq('solicitation_id', id)
-        .order('created_at', { ascending: false });
+      const { data } = await supabase.from('audit_logs').select('*, profiles(name)').eq('solicitation_id', id).order('created_at', { ascending: false });
       return data || [];
     },
   });
@@ -82,10 +94,7 @@ const DetalheTicketAtendente = () => {
   const { data: areaConclusions = [] } = useQuery({
     queryKey: ['area-conclusions', id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('area_conclusions')
-        .select('*, areas(name)')
-        .eq('solicitation_id', id);
+      const { data } = await supabase.from('area_conclusions').select('*, areas(name)').eq('solicitation_id', id);
       return data || [];
     },
   });
@@ -103,7 +112,6 @@ const DetalheTicketAtendente = () => {
     myAssignments.some(a => a.area_id === d.responsible_area_id && a.operation_id === solicitation?.operation_id)
   );
 
-  // Sort: pendente → revisao_solicitada → em_busca → inexistente → enviado
   const statusOrder: Record<string, number> = { pendente: 0, revisao_solicitada: 1, em_busca: 2, inexistente: 3, enviado: 4 };
   const sortedDocs = [...myDocs].sort((a: any, b: any) => (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0));
 
@@ -145,9 +153,9 @@ const DetalheTicketAtendente = () => {
         status: state.status,
         observations: state.observations || null,
         file_url: state.status === 'enviado' ? fileUrl : doc.file_url,
+        revision_reason: state.status !== 'revisao_solicitada' ? null : doc.revision_reason,
       }).eq('id', doc.id);
 
-      // Auto-transition solicitation to em_atendimento
       if (solicitation?.status === 'aberto') {
         await supabase.from('solicitations').update({ status: 'em_atendimento' }).eq('id', id);
       }
@@ -168,28 +176,14 @@ const DetalheTicketAtendente = () => {
     }
   };
 
-  const sendComment = async () => {
+  const sendCommentFn = async () => {
     if (!comment.trim() || !profile) return;
+    setSendingComment(true);
     try {
-      await supabase.from('comments').insert({
-        solicitation_id: id!,
-        user_id: profile.id,
-        message: comment,
-      });
-      await supabase.from('audit_logs').insert({
-        solicitation_id: id!,
-        user_id: profile.id,
-        action: 'Comentário adicionado',
-        details: comment,
-      });
-      // Notify juridico requester
+      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
+      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
       if (solicitation?.requester_id && solicitation.requester_id !== profile.id) {
-        await supabase.from('notifications').insert({
-          user_id: solicitation.requester_id,
-          type: 'comentario',
-          message: `Novo comentário em ${solicitation.ticket_id}`,
-          solicitation_id: id!,
-        });
+        await supabase.from('notifications').insert({ user_id: solicitation.requester_id, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
       }
       setComment('');
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
@@ -197,11 +191,12 @@ const DetalheTicketAtendente = () => {
       toast.success('Comentário enviado!');
     } catch (err: any) {
       toast.error('Erro: ' + err.message);
+    } finally {
+      setSendingComment(false);
     }
   };
 
   const handleConclude = async () => {
-    // Validations
     for (const doc of sortedDocs) {
       const state = docStates[doc.id] || { status: doc.status, observations: doc.observations };
       if (state.status === 'enviado' && !doc.file_url && !docStates[doc.id]?.file) {
@@ -218,15 +213,12 @@ const DetalheTicketAtendente = () => {
       }
     }
 
+    setConcluding(true);
     try {
-      // Save all pending doc changes
       for (const doc of sortedDocs) {
-        if (docStates[doc.id]) {
-          await saveDocChanges(doc);
-        }
+        if (docStates[doc.id]) await saveDocChanges(doc);
       }
 
-      // Get my area IDs
       const myAreaIds = [...new Set(myAssignments.map(a => a.area_id))];
       for (const areaId of myAreaIds) {
         await supabase.from('area_conclusions').upsert({
@@ -236,12 +228,8 @@ const DetalheTicketAtendente = () => {
         }, { onConflict: 'solicitation_id,area_id' });
       }
 
-      // Check if all areas concluded
       const involvedAreaIds = [...new Set(allDocuments.map((d: any) => d.responsible_area_id))];
-      const { data: conclusions } = await supabase
-        .from('area_conclusions')
-        .select('area_id')
-        .eq('solicitation_id', id!);
+      const { data: conclusions } = await supabase.from('area_conclusions').select('area_id').eq('solicitation_id', id!);
       const concludedAreaIds = new Set((conclusions || []).map((c: any) => c.area_id));
       const allConcluded = involvedAreaIds.every(a => concludedAreaIds.has(a));
 
@@ -272,10 +260,19 @@ const DetalheTicketAtendente = () => {
       navigate('/minhas-solicitacoes');
     } catch (err: any) {
       toast.error('Erro: ' + err.message);
+    } finally {
+      setConcluding(false);
     }
   };
 
-  if (!solicitation) return <div className="p-8 text-center text-muted-foreground">Carregando...</div>;
+  if (isLoading) return (
+    <div className="max-w-4xl mx-auto space-y-4">
+      <Skeleton className="h-48 w-full" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
+
+  if (!solicitation) return <div className="p-8 text-center text-muted-foreground">Solicitação não encontrada</div>;
 
   const deadlineInfo = solicitation.deadline ? getDeadlineInfo(solicitation.deadline) : null;
 
@@ -290,19 +287,12 @@ const DetalheTicketAtendente = () => {
           <h1 className="text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
           <StatusBadge status={solicitation.status as any} />
         </div>
-        <div className="grid grid-cols-4 gap-4">
-          <div>
-            <p className="text-sm text-muted-foreground">Operação</p>
-            <p className="font-semibold">{(solicitation.operations as any)?.name}</p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Funcionário</p>
-            <p className="font-semibold">{solicitation.employee_name}</p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Solicitante</p>
-            <p className="font-semibold">{(solicitation.profiles as any)?.name}</p>
-          </div>
+        <div className="grid grid-cols-3 lg:grid-cols-6 gap-4">
+          <div><p className="text-sm text-muted-foreground">Operação</p><p className="font-semibold">{(solicitation.operations as any)?.name}</p></div>
+          <div><p className="text-sm text-muted-foreground">Nº Processo</p><p className="font-semibold text-sm">{solicitation.process_number || '—'}</p></div>
+          <div><p className="text-sm text-muted-foreground">Funcionário</p><p className="font-semibold">{solicitation.employee_name}</p></div>
+          <div><p className="text-sm text-muted-foreground">Matrícula</p><p className="font-semibold">{(solicitation as any).employee_registration || '—'}</p></div>
+          <div><p className="text-sm text-muted-foreground">Solicitante</p><p className="font-semibold">{(solicitation.profiles as any)?.name}</p></div>
           <div>
             <p className="text-sm text-muted-foreground">Prazo fatal</p>
             {deadlineInfo && (
@@ -323,20 +313,44 @@ const DetalheTicketAtendente = () => {
             );
           })}
         </div>
+        {solicitation.observations && (
+          <div className="bg-[hsl(48,100%,96%)] border-l-4 border-[hsl(48,96%,53%)] p-3 rounded text-sm mt-4">
+            <strong>Observações:</strong> {solicitation.observations}
+          </div>
+        )}
       </Card>
+
+      {/* Solicitation Attachments */}
+      {attachments.length > 0 && (
+        <Card className="p-6 mb-6">
+          <h2 className="text-lg font-semibold text-primary mb-4">Anexos da Solicitação</h2>
+          <div className="space-y-2">
+            {attachments.map((a: any) => (
+              <div key={a.id} className="flex items-center gap-3 p-3 bg-accent rounded-lg">
+                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-sm flex-1 truncate">{a.file_name}</span>
+                <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
+                <Button variant="ghost" size="sm" onClick={() => downloadFile(a.file_url)}>
+                  <Download className="h-4 w-4" /> Baixar
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Documents */}
       <Card className="p-6 mb-6">
         <h2 className="text-lg font-semibold text-primary mb-4">Documentos Solicitados</h2>
         {sortedDocs.map((doc: any) => {
-          const state = getDocState(doc.id, doc);
           const currentStatus = docStates[doc.id]?.status || doc.status;
+          const isDisabled = doc.status === 'pendente' ? false : doc.status === 'revisao_solicitada' ? false : !docStates[doc.id];
 
           return (
             <div key={doc.id} className="bg-accent rounded-lg p-5 mb-4 border">
               <h3 className="font-semibold text-foreground mb-3">{doc.document_name}</h3>
 
-              {doc.status === 'revisao_solicitada' && doc.revision_reason && (
+              {doc.revision_reason && (doc.status === 'revisao_solicitada' || currentStatus === 'revisao_solicitada') && (
                 <div className="bg-status-revision/10 border-l-4 border-status-revision p-4 mb-3 rounded">
                   <p className="text-sm font-semibold text-status-revision">Motivo da devolutiva:</p>
                   <p className="text-sm text-foreground">{doc.revision_reason}</p>
@@ -370,13 +384,18 @@ const DetalheTicketAtendente = () => {
                     <label className="text-sm text-muted-foreground mb-1 block">Arquivo *</label>
                     <label className="flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-success/5 bg-success/5">
                       <Upload className="h-4 w-4 text-success" />
-                      <span className="text-sm">
+                      <span className="text-sm truncate">
                         {docStates[doc.id]?.file?.name || (doc.file_url ? 'Arquivo enviado ✓' : 'Selecionar arquivo')}
                       </span>
                       <input type="file" className="hidden" onChange={(e) => {
                         if (e.target.files?.[0]) updateDocState(doc.id, 'file', e.target.files[0]);
                       }} />
                     </label>
+                    {doc.file_url && (
+                      <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto text-xs" onClick={() => downloadFile(doc.file_url)}>
+                        <Download className="h-3 w-3 mr-1" /> Ver arquivo atual
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
@@ -421,8 +440,8 @@ const DetalheTicketAtendente = () => {
         </div>
         <div className="flex gap-2">
           <Textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Escreva um comentário..." className="flex-1" />
-          <Button size="sm" className="self-end" disabled={!comment.trim()} onClick={sendComment}>
-            <Send className="h-4 w-4 mr-1" /> Enviar
+          <Button size="sm" className="self-end" disabled={!comment.trim() || sendingComment} onClick={sendCommentFn}>
+            {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-1" /> Enviar</>}
           </Button>
         </div>
       </Card>
@@ -456,7 +475,9 @@ const DetalheTicketAtendente = () => {
       {/* Footer */}
       <div className="flex justify-end gap-3 mt-6">
         <Button variant="outline" onClick={() => navigate('/minhas-solicitacoes')}>Voltar</Button>
-        <Button onClick={handleConclude}>Concluir</Button>
+        <Button onClick={handleConclude} disabled={concluding}>
+          {concluding ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Concluindo...</> : 'Concluir'}
+        </Button>
       </div>
     </div>
   );

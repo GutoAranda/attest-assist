@@ -5,12 +5,27 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, DocStatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
-import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useMemo } from 'react';
+
+const downloadFile = async (fileUrl: string, fileName: string) => {
+  if (fileUrl.includes('/storage/v1/object/public/')) {
+    window.open(fileUrl, '_blank');
+  } else {
+    // Try signed URL fallback
+    const path = fileUrl.split('/storage/v1/object/')[1]?.replace(/^(sign|public)\//, '') || fileUrl;
+    const bucket = path.split('/')[0];
+    const filePath = path.split('/').slice(1).join('/');
+    const { data } = await supabase.storage.from(bucket).createSignedUrl(filePath, 3600);
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank');
+    else window.open(fileUrl, '_blank');
+  }
+};
 
 const DetalheTicketJuridico = () => {
   const { id } = useParams();
@@ -18,13 +33,16 @@ const DetalheTicketJuridico = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [comment, setComment] = useState('');
+  const [sendingComment, setSendingComment] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [cancelDialog, setCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
   const [revisionDialog, setRevisionDialog] = useState<string | null>(null);
   const [revisionReason, setRevisionReason] = useState('');
+  const [revising, setRevising] = useState(false);
 
-  const { data: solicitation } = useQuery({
+  const { data: solicitation, isLoading } = useQuery({
     queryKey: ['solicitation', id],
     queryFn: async () => {
       const { data } = await supabase
@@ -39,11 +57,7 @@ const DetalheTicketJuridico = () => {
   const { data: documents = [] } = useQuery({
     queryKey: ['documents', id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('documents')
-        .select('*, areas(name)')
-        .eq('solicitation_id', id)
-        .order('created_at');
+      const { data } = await supabase.from('documents').select('*, areas(name)').eq('solicitation_id', id).order('created_at');
       return data || [];
     },
   });
@@ -80,7 +94,6 @@ const DetalheTicketJuridico = () => {
     },
   });
 
-  // Group documents by area
   const groupedDocs = useMemo(() => {
     const groups: Record<string, { areaName: string; docs: any[] }> = {};
     documents.forEach((doc: any) => {
@@ -94,65 +107,85 @@ const DetalheTicketJuridico = () => {
 
   const sendComment = async () => {
     if (!comment.trim() || !profile) return;
-    await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
-    await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
-    // Notify atendentes involved
-    const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
-    if (solicitation) {
-      const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
-      const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
-      for (const userId of uniqueUsers) {
-        if (userId !== profile.id) {
-          await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
+    setSendingComment(true);
+    try {
+      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
+      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
+      const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
+      if (solicitation) {
+        const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
+        const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
+        for (const userId of uniqueUsers) {
+          if (userId !== profile.id) {
+            await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
+          }
         }
       }
+      setComment('');
+      queryClient.invalidateQueries({ queryKey: ['comments', id] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+    } finally {
+      setSendingComment(false);
     }
-    setComment('');
-    queryClient.invalidateQueries({ queryKey: ['comments', id] });
-    queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
   };
 
   const handleCancel = async () => {
     if (!cancelReason.trim()) { toast.error('Informe o motivo'); return; }
-    await supabase.from('solicitations').update({ status: 'cancelado', cancel_reason: cancelReason }).eq('id', id);
-    await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile!.id, action: 'Solicitação cancelada', details: cancelReason });
-    // Notify atendentes
-    const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
-    if (solicitation) {
-      const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
-      const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
-      for (const userId of uniqueUsers) {
-        await supabase.from('notifications').insert({ user_id: userId, type: 'cancelamento', message: `Solicitação ${solicitation.ticket_id} foi cancelada`, solicitation_id: id! });
+    setCancelling(true);
+    try {
+      await supabase.from('solicitations').update({ status: 'cancelado', cancel_reason: cancelReason }).eq('id', id);
+      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile!.id, action: 'Solicitação cancelada', details: cancelReason });
+      const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
+      if (solicitation) {
+        const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
+        const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
+        for (const userId of uniqueUsers) {
+          await supabase.from('notifications').insert({ user_id: userId, type: 'cancelamento', message: `Solicitação ${solicitation.ticket_id} foi cancelada`, solicitation_id: id! });
+        }
       }
+      queryClient.invalidateQueries();
+      setCancelDialog(false);
+      toast.success('Solicitação cancelada');
+    } finally {
+      setCancelling(false);
     }
-    queryClient.invalidateQueries();
-    setCancelDialog(false);
-    toast.success('Solicitação cancelada');
   };
 
   const handleRevision = async () => {
     if (!revisionReason.trim() || !revisionDialog) { toast.error('Informe o motivo'); return; }
-    await supabase.from('documents').update({ status: 'revisao_solicitada', revision_reason: revisionReason }).eq('id', revisionDialog);
-    const doc = documents.find((d: any) => d.id === revisionDialog);
-    if (doc) {
-      await supabase.from('area_conclusions').delete().eq('solicitation_id', id!).eq('area_id', (doc as any).responsible_area_id);
-    }
-    await supabase.from('solicitations').update({ status: 'em_atendimento', concluded_at: null }).eq('id', id);
-    await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile!.id, action: 'Revisão solicitada', details: `Documento: ${(doc as any)?.document_name}. Motivo: ${revisionReason}` });
-    // Notify atendentes for this area
-    if (doc && solicitation) {
-      const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').eq('area_id', (doc as any).responsible_area_id).eq('operation_id', solicitation.operation_id);
-      for (const a of assignments || []) {
-        await supabase.from('notifications').insert({ user_id: a.user_id, type: 'revisao', message: `Revisão solicitada no documento "${(doc as any).document_name}" do ticket ${solicitation.ticket_id}`, solicitation_id: id! });
+    setRevising(true);
+    try {
+      await supabase.from('documents').update({ status: 'revisao_solicitada', revision_reason: revisionReason }).eq('id', revisionDialog);
+      const doc = documents.find((d: any) => d.id === revisionDialog);
+      if (doc) {
+        await supabase.from('area_conclusions').delete().eq('solicitation_id', id!).eq('area_id', (doc as any).responsible_area_id);
       }
+      await supabase.from('solicitations').update({ status: 'em_atendimento', concluded_at: null }).eq('id', id);
+      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile!.id, action: 'Revisão solicitada', details: `Documento: ${(doc as any)?.document_name}. Motivo: ${revisionReason}` });
+      if (doc && solicitation) {
+        const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').eq('area_id', (doc as any).responsible_area_id).eq('operation_id', solicitation.operation_id);
+        for (const a of assignments || []) {
+          await supabase.from('notifications').insert({ user_id: a.user_id, type: 'revisao', message: `Revisão solicitada no documento "${(doc as any).document_name}" do ticket ${solicitation.ticket_id}`, solicitation_id: id! });
+        }
+      }
+      queryClient.invalidateQueries();
+      setRevisionDialog(null);
+      setRevisionReason('');
+      toast.success('Revisão solicitada');
+    } finally {
+      setRevising(false);
     }
-    queryClient.invalidateQueries();
-    setRevisionDialog(null);
-    setRevisionReason('');
-    toast.success('Revisão solicitada');
   };
 
-  if (!solicitation) return <div className="p-8 text-center text-muted-foreground">Carregando...</div>;
+  if (isLoading) return (
+    <div className="max-w-4xl mx-auto space-y-4">
+      <Skeleton className="h-48 w-full" />
+      <Skeleton className="h-32 w-full" />
+      <Skeleton className="h-32 w-full" />
+    </div>
+  );
+
+  if (!solicitation) return <div className="p-8 text-center text-muted-foreground">Solicitação não encontrada</div>;
 
   const deadlineInfo = solicitation.deadline ? getDeadlineInfo(solicitation.deadline) : null;
 
@@ -181,16 +214,17 @@ const DetalheTicketJuridico = () => {
           <h1 className="text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
           <StatusBadge status={solicitation.status as any} />
         </div>
-        <div className="grid grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
           <div><p className="text-sm text-muted-foreground">Operação</p><p className="font-semibold">{(solicitation.operations as any)?.name}</p></div>
+          <div><p className="text-sm text-muted-foreground">Nº Processo</p><p className="font-semibold text-sm">{solicitation.process_number || '—'}</p></div>
           <div><p className="text-sm text-muted-foreground">Funcionário</p><p className="font-semibold">{solicitation.employee_name}</p></div>
+          <div><p className="text-sm text-muted-foreground">Matrícula</p><p className="font-semibold">{(solicitation as any).employee_registration || '—'}</p></div>
           <div><p className="text-sm text-muted-foreground">Solicitante</p><p className="font-semibold">{(solicitation.profiles as any)?.name}</p></div>
           <div>
             <p className="text-sm text-muted-foreground">Prazo fatal</p>
             {deadlineInfo && <p className={`font-semibold ${deadlineInfo.className}`}>{new Date(solicitation.deadline + 'T00:00:00').toLocaleDateString('pt-BR')} ({deadlineInfo.label})</p>}
           </div>
         </div>
-        {/* Area indicators */}
         <div className="flex gap-2 mb-4">
           {Object.entries(groupedDocs).map(([areaId, { areaName }]) => {
             const concluded = areaConclusions.some((c: any) => c.area_id === areaId);
@@ -213,17 +247,22 @@ const DetalheTicketJuridico = () => {
         )}
       </Card>
 
-      {/* Attachments */}
+      {/* Solicitation Attachments */}
       {attachments.length > 0 && (
         <Card className="p-6 mb-6">
           <h2 className="text-lg font-semibold text-primary mb-4">Anexos da Solicitação</h2>
-          {attachments.map((a: any) => (
-            <div key={a.id} className="flex items-center gap-2 p-2 border-b">
-              <a href={a.file_url} target="_blank" className="text-info hover:underline text-sm flex-1">{a.file_name}</a>
-              <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
-              <a href={a.file_url} target="_blank"><Download className="h-4 w-4 text-muted-foreground" /></a>
-            </div>
-          ))}
+          <div className="space-y-2">
+            {attachments.map((a: any) => (
+              <div key={a.id} className="flex items-center gap-3 p-3 bg-accent rounded-lg">
+                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-sm flex-1 truncate">{a.file_name}</span>
+                <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
+                <Button variant="ghost" size="sm" onClick={() => downloadFile(a.file_url, a.file_name)}>
+                  <Download className="h-4 w-4" /> Baixar
+                </Button>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 
@@ -246,9 +285,9 @@ const DetalheTicketJuridico = () => {
               </div>
               {doc.observations && <p className="text-sm text-muted-foreground mt-2">{doc.observations}</p>}
               {doc.file_url && (
-                <a href={doc.file_url} target="_blank" className="text-sm text-info hover:underline mt-1 inline-flex items-center gap-1">
-                  <Download className="h-3 w-3" /> Ver arquivo
-                </a>
+                <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto" onClick={() => downloadFile(doc.file_url, doc.document_name)}>
+                  <Download className="h-3 w-3 mr-1" /> Ver arquivo
+                </Button>
               )}
               {doc.revision_reason && (
                 <div className="bg-status-revision/10 border-l-4 border-status-revision p-2 mt-2 rounded text-sm">
@@ -278,8 +317,8 @@ const DetalheTicketJuridico = () => {
         {solicitation.status !== 'cancelado' && solicitation.status !== 'concluido' && (
           <div className="flex gap-2">
             <Textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Escreva um comentário..." className="flex-1" />
-            <Button size="sm" className="self-end" disabled={!comment.trim()} onClick={sendComment}>
-              <Send className="h-4 w-4 mr-1" /> Enviar
+            <Button size="sm" className="self-end" disabled={!comment.trim() || sendingComment} onClick={sendComment}>
+              {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-1" /> Enviar</>}
             </Button>
           </div>
         )}
@@ -311,10 +350,13 @@ const DetalheTicketJuridico = () => {
       <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>Cancelar solicitação</DialogTitle></DialogHeader>
+          <DialogDescription>Tem certeza? Informe o motivo do cancelamento.</DialogDescription>
           <Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Motivo do cancelamento *" rows={3} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setCancelDialog(false)}>Voltar</Button>
-            <Button variant="destructive" onClick={handleCancel}>Confirmar cancelamento</Button>
+            <Button variant="destructive" onClick={handleCancel} disabled={cancelling}>
+              {cancelling ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Confirmar cancelamento
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -323,10 +365,13 @@ const DetalheTicketJuridico = () => {
       <Dialog open={!!revisionDialog} onOpenChange={() => setRevisionDialog(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Solicitar revisão</DialogTitle></DialogHeader>
+          <DialogDescription>Informe o motivo da devolutiva.</DialogDescription>
           <Textarea value={revisionReason} onChange={(e) => setRevisionReason(e.target.value)} placeholder="Motivo da devolutiva *" rows={3} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setRevisionDialog(null)}>Cancelar</Button>
-            <Button onClick={handleRevision}>Solicitar revisão</Button>
+            <Button onClick={handleRevision} disabled={revising}>
+              {revising ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Solicitar revisão
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
