@@ -44,7 +44,7 @@ const TodasSolicitacoes = () => {
   });
 
   const { data: result, isLoading } = useQuery({
-    queryKey: ['all-solicitations', search, statusFilter, operationFilter, requesterFilter, page],
+    queryKey: ['all-solicitations', search, statusFilter, operationFilter, requesterFilter, page, dateFrom, dateTo],
     queryFn: async () => {
       let query = supabase
         .from('solicitations')
@@ -62,6 +62,12 @@ const TodasSolicitacoes = () => {
       if (requesterFilter !== 'todos') query = query.eq('requester_id', requesterFilter);
       if (search) {
         query = query.or(`ticket_id.ilike.%${search}%,process_number.ilike.%${search}%,employee_name.ilike.%${search}%`);
+      }
+      if (dateFrom) {
+        query = query.gte('created_at', dateFrom + 'T00:00:00');
+      }
+      if (dateTo) {
+        query = query.lte('created_at', dateTo + 'T23:59:59');
       }
 
       const { data, count } = await query;
