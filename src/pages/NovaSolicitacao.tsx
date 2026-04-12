@@ -12,7 +12,7 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Trash2, Paperclip, FileText, Loader2 } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, Paperclip, FileText, Loader2, GripVertical } from 'lucide-react';
 import BulkDocumentImport from '@/components/BulkDocumentImport';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -20,6 +20,9 @@ import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { buildStoragePublicUrl } from '@/lib/storage';
 import { sendNewSolicitationEmail } from '@/lib/email';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface DocumentRow {
   name: string;
