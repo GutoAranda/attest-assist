@@ -29,7 +29,41 @@ interface DocumentRow {
   area_id: string;
 }
 
-const isMissingDuplicateRpc = (error: { code?: string; message?: string } | null) => {
+interface SortableDocProps {
+  id: string;
+  index: number;
+  doc: DocumentRow;
+  areas: any[];
+  onUpdate: (idx: number, field: keyof DocumentRow, value: string) => void;
+  onRemove: (idx: number) => void;
+  canRemove: boolean;
+}
+
+const SortableDocumentRow = ({ id, index, doc, areas, onUpdate, onRemove, canRemove }: SortableDocProps) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-3">
+      <button type="button" className="cursor-grab text-muted-foreground hover:text-foreground" {...attributes} {...listeners}>
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <span className="text-muted-foreground text-sm w-6">{index + 1}</span>
+      <Input value={doc.name} onChange={(e) => onUpdate(index, 'name', e.target.value)} placeholder="Nome do documento" className="flex-1" />
+      <Select value={doc.area_id} onValueChange={(v) => onUpdate(index, 'area_id', v)}>
+        <SelectTrigger className="w-40"><SelectValue placeholder="Responsável" /></SelectTrigger>
+        <SelectContent>
+          {areas.map((a: any) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <button onClick={() => onRemove(index)} disabled={!canRemove} className="text-danger hover:text-danger/80 disabled:opacity-30">
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+};
+
+
   if (!error) return false;
   return error.code === 'PGRST202' || error.message?.includes('Could not find the function');
 };
