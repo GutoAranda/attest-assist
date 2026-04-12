@@ -179,7 +179,7 @@ const TodasSolicitacoes = () => {
             <Input className="pl-10" placeholder="Buscar por ticket, processo ou funcionário..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <Select value={operationFilter} onValueChange={(v) => { setOperationFilter(v); setPage(0); }}>
             <SelectTrigger><SelectValue placeholder="Operação" /></SelectTrigger>
             <SelectContent>
@@ -206,6 +206,8 @@ const TodasSolicitacoes = () => {
               <SelectItem value="vencidos">Vencidos</SelectItem>
             </SelectContent>
           </Select>
+          <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }} placeholder="De" />
+          <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }} placeholder="Até" />
         </div>
       </Card>
 
