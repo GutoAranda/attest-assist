@@ -212,13 +212,15 @@ const Admin = () => {
     if (!inviteName || !inviteEmail) { toast.error('Preencha nome e email'); return; }
     setInviteLoading(true);
     try {
-      const profileId = crypto.randomUUID();
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: profileId, user_id: profileId, name: inviteName, email: inviteEmail, role: inviteRole, is_admin: false, is_active: true,
+      const { data, error } = await supabase.functions.invoke('invite-user', {
+        body: { name: inviteName, email: inviteEmail, role: inviteRole, is_admin: false },
       });
-      if (profileError) throw profileError;
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
-      if (inviteRole === 'atendente' && inviteAreaId) {
+      const profileId = data.profile_id;
+
+      if (inviteRole === 'atendente' && inviteAreaId && profileId) {
         for (const opId of inviteOpIds) {
           await supabase.from('user_group_assignments').insert({
             user_id: profileId, area_id: inviteAreaId, operation_id: opId,
@@ -490,7 +492,7 @@ const Admin = () => {
             {inviteRole === 'atendente' && (
               <>
                 <div><Label>Área</Label><Select value={inviteAreaId} onValueChange={setInviteAreaId}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{areas.filter((a: any) => a.active).map((a: any) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent></Select></div>
-                <div><Label>Operações</Label><div className="grid grid-cols-2 gap-2 mt-1 max-h-40 overflow-y-auto">{operations.filter((o: any) => o.active).map((o: any) => <label key={o.id} className="flex items-center gap-2 text-sm"><Checkbox checked={inviteOpIds.includes(o.id)} onCheckedChange={(checked) => setInviteOpIds(prev => checked ? [...prev, o.id] : prev.filter(id => id !== o.id))} />{o.name}</label>)}</div></div>
+                <div><Label>Operações</Label><div className="grid grid-cols-2 gap-2 mt-1 max-h-40 overflow-y-auto">{operations.filter((o: any) => o.active).map((o: any) => <label key={o.id} className="flex items-center gap-2 text-sm"><Checkbox checked={inviteOpIds.includes(o.id)} onCheckedChange={(checked) => setInviteOpIds(prev => checked ? [...prev, o.id] : prev.filter(id => id !== o.id))} />{o.name}</label>)}{operations.filter((o: any) => !o.active).map((o: any) => <label key={o.id} className="flex items-center gap-2 text-sm text-muted-foreground"><Checkbox checked={inviteOpIds.includes(o.id)} onCheckedChange={(checked) => setInviteOpIds(prev => checked ? [...prev, o.id] : prev.filter(id => id !== o.id))} />{o.name} (Inativa)</label>)}</div></div>
               </>
             )}
           </div>

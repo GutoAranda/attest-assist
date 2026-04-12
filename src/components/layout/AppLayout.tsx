@@ -7,14 +7,20 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 const AppLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isMobile = useIsMobile();
   useKeyboardShortcuts();
 
   return (
     <div className="min-h-screen bg-background">
       <Header onToggleSidebar={() => setSidebarOpen(o => !o)} />
-      <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <main className={`mt-16 p-4 md:p-6 min-h-[calc(100vh-64px)] transition-all duration-300 ${isMobile ? 'ml-0' : 'ml-64'}`}>
+      <Sidebar
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+      />
+      <main className={`mt-16 p-4 md:p-6 min-h-[calc(100vh-64px)] transition-all duration-300 ${isMobile ? 'ml-0' : sidebarCollapsed ? 'ml-16' : 'ml-64'}`}>
         <Outlet />
       </main>
     </div>

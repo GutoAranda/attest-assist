@@ -44,7 +44,7 @@ const TodasSolicitacoes = () => {
   });
 
   const { data: result, isLoading } = useQuery({
-    queryKey: ['all-solicitations', search, statusFilter, operationFilter, requesterFilter, page],
+    queryKey: ['all-solicitations', search, statusFilter, operationFilter, requesterFilter, page, dateFrom, dateTo],
     queryFn: async () => {
       let query = supabase
         .from('solicitations')
@@ -62,6 +62,12 @@ const TodasSolicitacoes = () => {
       if (requesterFilter !== 'todos') query = query.eq('requester_id', requesterFilter);
       if (search) {
         query = query.or(`ticket_id.ilike.%${search}%,process_number.ilike.%${search}%,employee_name.ilike.%${search}%`);
+      }
+      if (dateFrom) {
+        query = query.gte('created_at', dateFrom + 'T00:00:00');
+      }
+      if (dateTo) {
+        query = query.lte('created_at', dateTo + 'T23:59:59');
       }
 
       const { data, count } = await query;
@@ -173,7 +179,7 @@ const TodasSolicitacoes = () => {
             <Input className="pl-10" placeholder="Buscar por ticket, processo ou funcionário..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <Select value={operationFilter} onValueChange={(v) => { setOperationFilter(v); setPage(0); }}>
             <SelectTrigger><SelectValue placeholder="Operação" /></SelectTrigger>
             <SelectContent>
@@ -200,6 +206,8 @@ const TodasSolicitacoes = () => {
               <SelectItem value="vencidos">Vencidos</SelectItem>
             </SelectContent>
           </Select>
+          <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }} placeholder="De" />
+          <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }} placeholder="Até" />
         </div>
       </Card>
 
