@@ -137,30 +137,32 @@ const NovaSolicitacao = () => {
 
     setSaving(true);
     try {
-      let ticketId: string | null = null;
-      if (!asDraft) {
-        const { data: tid } = await supabase.rpc('generate_ticket_id');
-        ticketId = tid as string;
-      }
-      const status = asDraft ? 'rascunho' : 'aberto';
-
       let solId = editId;
 
       if (editId) {
-        await supabase.from('solicitations').update({
-          ticket_id: ticketId || undefined,
+        // EDIT MODE: update existing, do NOT generate new ticket_id or change status
+        const { error: updErr } = await supabase.from('solicitations').update({
           operation_id: operationId,
           process_number: processNumber || null,
           employee_name: employeeName || null,
           employee_registration: employeeRegistration || null,
           observations: observations || null,
-          status,
           deadline: deadline ? format(deadline, 'yyyy-MM-dd') : null,
         } as any).eq('id', editId);
+        if (updErr) throw updErr;
 
+        // Delete old documents THEN insert new ones
         await supabase.from('documents').delete().eq('solicitation_id', editId);
       } else {
+        // CREATE MODE: generate ticket and UUID
+        let ticketId: string | null = null;
+        if (!asDraft) {
+          const { data: tid } = await supabase.rpc('generate_ticket_id');
+          ticketId = tid as string;
+        }
+        const status = asDraft ? 'rascunho' : 'aberto';
         const newId = crypto.randomUUID();
+
         const { error: solErr } = await supabase
           .from("solicitations")
           .insert({
@@ -179,6 +181,7 @@ const NovaSolicitacao = () => {
         solId = newId;
       }
 
+      // Insert documents
       const validDocs = documents.filter(d => d.name);
       if (validDocs.length > 0) {
         await supabase.from('documents').insert(
@@ -191,10 +194,11 @@ const NovaSolicitacao = () => {
         );
       }
 
+      // Upload attachments
       for (const file of files) {
         const path = `${solId}/${Date.now()}_${file.name}`;
         const { error: upErr } = await supabase.storage.from('solicitations').upload(path, file);
-     if (upErr) {
+        if (upErr) {
           console.error('Upload error:', upErr);
           toast.error('Erro no upload de ' + file.name + ': ' + upErr.message);
         } else {
@@ -212,12 +216,16 @@ const NovaSolicitacao = () => {
         }
       }
 
-      if (!asDraft) {
+      // Audit log and notifications (only for non-draft)
+      if (!editId && !asDraft) {
+        const { data: solData } = await supabase.from('solicitations').select('ticket_id').eq('id', solId!).single();
+        const ticketId = solData?.ticket_id;
+
         await supabase.from('audit_logs').insert({
           solicitation_id: solId!,
           user_id: profile.id,
-          action: editId ? 'Solicitação atualizada' : 'Solicitação criada',
-          details: `Ticket ${ticketId} ${editId ? 'atualizado' : 'criado'} por ${profile.name}`,
+          action: 'Solicitação criada',
+          details: `Ticket ${ticketId} criado por ${profile.name}`,
         });
 
         for (const doc of validDocs) {
@@ -239,14 +247,24 @@ const NovaSolicitacao = () => {
             }
           }
         }
+      } else if (editId) {
+        await supabase.from('audit_logs').insert({
+          solicitation_id: solId!,
+          user_id: profile.id,
+          action: 'Solicitação atualizada',
+          details: `Solicitação editada por ${profile.name}`,
+        });
       }
 
       queryClient.invalidateQueries();
 
-      if (asDraft) {
+      if (editId) {
+        toast.success('Solicitação atualizada!');
+        navigate(`/solicitacoes/${editId}`);
+      } else if (asDraft) {
         toast.success('Rascunho salvo!');
       } else {
-        toast.success(`Solicitação ${ticketId} criada!`);
+        toast.success('Solicitação criada!');
         navigate(`/solicitacoes/${solId}`);
       }
     } catch (err: any) {
