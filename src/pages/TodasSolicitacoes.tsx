@@ -6,9 +6,12 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { StatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
-import { Search, Download } from 'lucide-react';
+import { Search, Download, ChevronUp, ChevronDown } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
+
+type SortCol = 'ticket_id' | 'operation' | 'employee_name' | 'employee_registration' | 'requester' | 'status' | 'deadline';
 
 const TodasSolicitacoes = () => {
   const navigate = useNavigate();
@@ -18,6 +21,8 @@ const TodasSolicitacoes = () => {
   const [operationFilter, setOperationFilter] = useState('todos');
   const [requesterFilter, setRequesterFilter] = useState('todos');
   const [page, setPage] = useState(0);
+  const [sortCol, setSortCol] = useState<SortCol | null>(null);
+  const [sortAsc, setSortAsc] = useState(true);
   const PAGE_SIZE = 10;
 
   const { data: operations = [] } = useQuery({
@@ -36,7 +41,7 @@ const TodasSolicitacoes = () => {
     },
   });
 
-  const { data: result } = useQuery({
+  const { data: result, isLoading } = useQuery({
     queryKey: ['all-solicitations', search, statusFilter, operationFilter, requesterFilter, page],
     queryFn: async () => {
       let query = supabase
@@ -51,20 +56,40 @@ const TodasSolicitacoes = () => {
         const today = new Date().toISOString().split('T')[0];
         query = query.in('status', ['aberto', 'em_atendimento', 'parcialmente_concluido']).lt('deadline', today);
       }
-      if (operationFilter !== 'todos') {
-        query = query.eq('operation_id', operationFilter);
-      }
-      if (requesterFilter !== 'todos') {
-        query = query.eq('requester_id', requesterFilter);
-      }
+      if (operationFilter !== 'todos') query = query.eq('operation_id', operationFilter);
+      if (requesterFilter !== 'todos') query = query.eq('requester_id', requesterFilter);
       if (search) {
         query = query.or(`ticket_id.ilike.%${search}%,process_number.ilike.%${search}%,employee_name.ilike.%${search}%`);
       }
 
       const { data, count } = await query;
+      return { items: data || [], total: count || 0 };
+    },
+  });
 
-      // Custom sort: overdue → today → ≤3d → >3d → concluídos → cancelados
-      const sorted = (data || []).sort((a: any, b: any) => {
+  const items = result?.items || [];
+  const total = result?.total || 0;
+
+  const sortedItems = useMemo(() => {
+    let sorted = [...items];
+    if (sortCol) {
+      sorted.sort((a: any, b: any) => {
+        let va: any, vb: any;
+        switch (sortCol) {
+          case 'ticket_id': va = a.ticket_id || ''; vb = b.ticket_id || ''; break;
+          case 'operation': va = (a.operations as any)?.name || ''; vb = (b.operations as any)?.name || ''; break;
+          case 'employee_name': va = a.employee_name || ''; vb = b.employee_name || ''; break;
+          case 'employee_registration': va = a.employee_registration || ''; vb = b.employee_registration || ''; break;
+          case 'requester': va = (a.profiles as any)?.name || ''; vb = (b.profiles as any)?.name || ''; break;
+          case 'status': va = a.status || ''; vb = b.status || ''; break;
+          case 'deadline': va = a.deadline || ''; vb = b.deadline || ''; break;
+        }
+        const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
+        return sortAsc ? cmp : -cmp;
+      });
+    } else {
+      // Default sort: overdue → today → ≤3d → >3d → concluídos → cancelados
+      sorted.sort((a: any, b: any) => {
         const getPriority = (s: any) => {
           if (s.status === 'cancelado') return 100;
           if (s.status === 'concluido') return 90;
@@ -79,25 +104,44 @@ const TodasSolicitacoes = () => {
         };
         return getPriority(a) - getPriority(b);
       });
+    }
+    return sorted;
+  }, [items, sortCol, sortAsc]);
 
-      return { items: sorted, total: count || 0 };
-    },
-  });
+  const pagedItems = sortedItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(sortedItems.length / PAGE_SIZE);
 
-  const items = result?.items || [];
-  const total = result?.total || 0;
-  const pagedItems = items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) {
+      if (sortAsc) { setSortAsc(false); }
+      else { setSortCol(null); setSortAsc(true); }
+    } else {
+      setSortCol(col);
+      setSortAsc(true);
+    }
+    setPage(0);
+  };
+
+  const SortHeader = ({ col, children }: { col: SortCol; children: React.ReactNode }) => (
+    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort(col)}>
+      <div className="flex items-center gap-1">
+        {children}
+        {sortCol === col && (sortAsc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+      </div>
+    </TableHead>
+  );
 
   const exportCSV = () => {
-    const headers = ['ID', 'Operação', 'Nº Processo', 'Funcionário', 'Solicitante', 'Status', 'Prazo', 'Data criação', 'Data conclusão'];
-    const rows = items.map((s: any) => [
+    const headers = ['ID', 'Operação', 'Nº Processo', 'Funcionário', 'Matrícula', 'Solicitante', 'Status', 'Prazo', 'Data criação', 'Data conclusão'];
+    const rows = sortedItems.map((s: any) => [
       s.ticket_id,
       (s.operations as any)?.name,
       s.process_number || '',
       s.employee_name || '',
+      s.employee_registration || '',
       (s.profiles as any)?.name,
       s.status,
-      s.deadline || '',
+      s.deadline ? new Date(s.deadline + 'T00:00:00').toLocaleDateString('pt-BR') : '',
       new Date(s.created_at).toLocaleDateString('pt-BR'),
       s.concluded_at ? new Date(s.concluded_at).toLocaleDateString('pt-BR') : '',
     ]);
@@ -158,63 +202,71 @@ const TodasSolicitacoes = () => {
       </Card>
 
       <Card className="overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Ticket</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Operação</TableHead>
-              <TableHead>Funcionário</TableHead>
-              <TableHead>Prazo</TableHead>
-              <TableHead>Solicitante</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {pagedItems.map((s: any) => {
-              const deadlineInfo = s.deadline ? getDeadlineInfo(s.deadline) : null;
-              const areaNames = [...new Set((s.documents || []).map((d: any) => (d.areas as any)?.name).filter(Boolean))];
-              return (
-                <TableRow
-                  key={s.id}
-                  className={`cursor-pointer hover:bg-accent/50 ${s.status === 'cancelado' ? 'opacity-50' : ''}`}
-                  onClick={() => navigate(`/solicitacoes/${s.id}`)}
-                >
-                  <TableCell>
-                    <span className="font-semibold text-primary">{s.ticket_id}</span>
-                    {areaNames.length > 0 && (
-                      <div className="flex gap-1 mt-1">
-                        {areaNames.map((a: string) => (
-                          <span key={a} className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{a}</span>
-                        ))}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell><StatusBadge status={s.status} /></TableCell>
-                  <TableCell className="text-sm">{(s.operations as any)?.name}</TableCell>
-                  <TableCell className="text-sm">{s.employee_name}</TableCell>
-                  <TableCell className="text-sm">
-                    {deadlineInfo && (
-                      <span className={deadlineInfo.className}>
-                        {new Date(s.deadline + 'T00:00:00').toLocaleDateString('pt-BR')}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{(s.profiles as any)?.name}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-        {pagedItems.length === 0 && (
+        {isLoading ? (
+          <div className="p-6 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortHeader col="ticket_id">Ticket</SortHeader>
+                <SortHeader col="status">Status</SortHeader>
+                <SortHeader col="operation">Operação</SortHeader>
+                <SortHeader col="employee_name">Funcionário</SortHeader>
+                <SortHeader col="employee_registration">Matrícula</SortHeader>
+                <SortHeader col="deadline">Prazo</SortHeader>
+                <SortHeader col="requester">Solicitante</SortHeader>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pagedItems.map((s: any) => {
+                const deadlineInfo = s.deadline ? getDeadlineInfo(s.deadline) : null;
+                const areaNames = [...new Set((s.documents || []).map((d: any) => (d.areas as any)?.name).filter(Boolean))];
+                return (
+                  <TableRow
+                    key={s.id}
+                    className={`cursor-pointer hover:bg-accent/50 ${s.status === 'cancelado' ? 'opacity-50' : ''}`}
+                    onClick={() => navigate(`/solicitacoes/${s.id}`)}
+                  >
+                    <TableCell>
+                      <span className="font-semibold text-primary">{s.ticket_id}</span>
+                      {areaNames.length > 0 && (
+                        <div className="flex gap-1 mt-1">
+                          {areaNames.map((a: string) => (
+                            <span key={a} className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{a}</span>
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell><StatusBadge status={s.status} /></TableCell>
+                    <TableCell className="text-sm">{(s.operations as any)?.name}</TableCell>
+                    <TableCell className="text-sm">{s.employee_name}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{s.employee_registration || '—'}</TableCell>
+                    <TableCell className="text-sm">
+                      {deadlineInfo && (
+                        <span className={deadlineInfo.className}>
+                          {new Date(s.deadline + 'T00:00:00').toLocaleDateString('pt-BR')}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{(s.profiles as any)?.name}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+        {!isLoading && pagedItems.length === 0 && (
           <div className="p-12 text-center text-muted-foreground">Nenhuma solicitação encontrada</div>
         )}
       </Card>
 
-      {items.length > PAGE_SIZE && (
+      {totalPages > 1 && (
         <div className="flex justify-center gap-2 mt-4">
           <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Anterior</Button>
-          <span className="text-sm text-muted-foreground self-center">Página {page + 1} de {Math.ceil(items.length / PAGE_SIZE)}</span>
-          <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= items.length} onClick={() => setPage(p => p + 1)}>Próxima</Button>
+          <span className="text-sm text-muted-foreground self-center">Página {page + 1} de {totalPages}</span>
+          <Button variant="outline" size="sm" disabled={page + 1 >= totalPages} onClick={() => setPage(p => p + 1)}>Próxima</Button>
         </div>
       )}
     </div>

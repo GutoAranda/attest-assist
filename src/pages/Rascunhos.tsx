@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Trash2, Edit } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -11,8 +14,9 @@ const Rascunhos = () => {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [deleteDialog, setDeleteDialog] = useState<string | null>(null);
 
-  const { data: drafts = [] } = useQuery({
+  const { data: drafts = [], isLoading } = useQuery({
     queryKey: ['drafts', profile?.id],
     queryFn: async () => {
       if (!profile) return [];
@@ -30,6 +34,7 @@ const Rascunhos = () => {
   const deleteDraft = async (id: string) => {
     await supabase.from('solicitations').delete().eq('id', id);
     queryClient.invalidateQueries({ queryKey: ['drafts'] });
+    setDeleteDialog(null);
     toast.success('Rascunho excluído');
   };
 
@@ -37,7 +42,11 @@ const Rascunhos = () => {
     <div className="max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold text-foreground mb-6">Rascunhos</h1>
 
-      {drafts.length === 0 ? (
+      {isLoading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+        </div>
+      ) : drafts.length === 0 ? (
         <Card className="p-12 text-center">
           <p className="text-muted-foreground">Nenhum rascunho salvo</p>
         </Card>
@@ -52,10 +61,10 @@ const Rascunhos = () => {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => navigate(`/solicitacoes/${d.id}`)}>
+                <Button variant="outline" size="sm" onClick={() => navigate(`/nova-solicitacao?editar=${d.id}`)}>
                   <Edit className="h-4 w-4 mr-1" /> Editar
                 </Button>
-                <Button variant="destructive" size="sm" onClick={() => deleteDraft(d.id)}>
+                <Button variant="destructive" size="sm" onClick={() => setDeleteDialog(d.id)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -63,6 +72,17 @@ const Rascunhos = () => {
           ))}
         </div>
       )}
+
+      <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Excluir rascunho</DialogTitle></DialogHeader>
+          <DialogDescription>Tem certeza? Esta ação não pode ser desfeita.</DialogDescription>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialog(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={() => deleteDialog && deleteDraft(deleteDialog)}>Excluir</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
