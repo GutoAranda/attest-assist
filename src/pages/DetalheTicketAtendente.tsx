@@ -130,7 +130,7 @@ const DetalheTicketAtendente = () => {
         const { error: upErr } = await supabase.storage.from('solicitations').upload(path, state.file);
         if (upErr) throw upErr;
         const { data: urlData } = supabase.storage.from('solicitations').getPublicUrl(path);
-        fileUrl = urlData.publicUrl;
+        fileUrl = urlData.publicUrl || '';
 
         await supabase.from('attachments').insert({
           solicitation_id: id!,

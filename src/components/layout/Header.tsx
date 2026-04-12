@@ -86,7 +86,7 @@ const Header = () => {
                     }}>
                     <p className="text-foreground">{n.message}</p>
                     <p className="text-muted-foreground text-xs mt-1">
-                      {new Date(n.created_at).toLocaleDateString('pt-BR')}
+                      {formatRelativeTime(n.created_at)}
                     </p>
                   </div>
                 ))
