@@ -12,19 +12,7 @@ import { StatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, ChevronDown, Upload, Send, FileText, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-
-const downloadFile = async (fileUrl: string) => {
-  if (fileUrl.includes('/storage/v1/object/public/')) {
-    window.open(fileUrl, '_blank');
-  } else {
-    const path = fileUrl.split('/storage/v1/object/')[1]?.replace(/^(sign|public)\//, '') || fileUrl;
-    const bucket = path.split('/')[0];
-    const filePath = path.split('/').slice(1).join('/');
-    const { data } = await supabase.storage.from(bucket).createSignedUrl(filePath, 3600);
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank');
-    else window.open(fileUrl, '_blank');
-  }
-};
+import { buildStoragePublicUrl, openStorageFile } from '@/lib/storage';
 
 const DetalheTicketAtendente = () => {
   const { id } = useParams();
@@ -137,8 +125,7 @@ const DetalheTicketAtendente = () => {
         const path = `${id}/${doc.id}/${Date.now()}_${state.file.name}`;
         const { error: upErr } = await supabase.storage.from('solicitations').upload(path, state.file);
         if (upErr) throw upErr;
-        const { data: urlData } = supabase.storage.from('solicitations').getPublicUrl(path);
-        fileUrl = urlData.publicUrl || '';
+        fileUrl = buildStoragePublicUrl('solicitations', path);
 
         await supabase.from('attachments').insert({
           solicitation_id: id!,
@@ -330,7 +317,7 @@ const DetalheTicketAtendente = () => {
                 <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm flex-1 truncate">{a.file_name}</span>
                 <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
-                <Button variant="ghost" size="sm" onClick={() => downloadFile(a.file_url)}>
+                <Button variant="ghost" size="sm" onClick={() => openStorageFile(a.file_url)}>
                   <Download className="h-4 w-4" /> Baixar
                 </Button>
               </div>
@@ -392,7 +379,7 @@ const DetalheTicketAtendente = () => {
                       }} />
                     </label>
                     {doc.file_url && (
-                      <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto text-xs" onClick={() => downloadFile(doc.file_url)}>
+                      <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto text-xs" onClick={() => openStorageFile(doc.file_url)}>
                         <Download className="h-3 w-3 mr-1" /> Ver arquivo atual
                       </Button>
                     )}
