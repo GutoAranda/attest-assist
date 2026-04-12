@@ -23,6 +23,8 @@ const TodasSolicitacoes = () => {
   const [page, setPage] = useState(0);
   const [sortCol, setSortCol] = useState<SortCol | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const PAGE_SIZE = 10;
 
   const { data: operations = [] } = useQuery({
