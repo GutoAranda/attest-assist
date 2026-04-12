@@ -68,16 +68,13 @@ const NovaSolicitacao = () => {
           setOperationId(sol.operation_id);
           setProcessNumber(sol.process_number || '');
           setEmployeeName(sol.employee_name || '');
-          setDocuments([]);
           setEmployeeRegistration((sol as any).employee_registration || '');
           setObservations(sol.observations || '');
           if (sol.deadline) setDeadline(new Date(sol.deadline + 'T00:00:00'));
         }
         const { data: docs } = await supabase.from('documents').select('*').eq('solicitation_id', editId);
-if (docs && docs.length > 0) {
+        if (docs && docs.length > 0) {
           setDocuments(docs.map(d => ({ name: d.document_name, area_id: d.responsible_area_id })));
-        } else {
-          setDocuments([{ name: '', area_id: '' }]);
         }
       })();
     }
@@ -198,21 +195,14 @@ if (docs && docs.length > 0) {
       for (const file of files) {
         const path = `${solId}/${Date.now()}_${file.name}`;
         const { error: upErr } = await supabase.storage.from('solicitations').upload(path, file);
-     if (upErr) {
-          console.error('Upload error:', upErr);
-          toast.error('Erro no upload de ' + file.name + ': ' + upErr.message);
-        } else {
+        if (!upErr) {
           const { data: urlData } = supabase.storage.from('solicitations').getPublicUrl(path);
-          const { error: attachErr } = await supabase.from('attachments').insert({
+          await supabase.from('attachments').insert({
             solicitation_id: solId!,
             file_name: file.name,
             file_url: urlData.publicUrl,
             uploaded_by: profile.id,
           });
-          if (attachErr) {
-            console.error('Attachment insert error:', attachErr);
-            toast.error('Erro ao registrar anexo: ' + attachErr.message);
-          }
         }
       }
 
