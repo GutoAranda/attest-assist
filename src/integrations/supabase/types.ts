@@ -472,6 +472,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_access_document: { Args: { doc_id: string }; Returns: boolean }
+      can_access_solicitation: { Args: { sol_id: string }; Returns: boolean }
       generate_ticket_id: { Args: never; Returns: string }
       get_my_profile_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
