@@ -17,10 +17,6 @@ export function useKeyboardShortcuts() {
           searchInput?.focus();
         }
       }
-      if (e.key === 'Escape') {
-        const dialogs = document.querySelectorAll('[data-state="open"]');
-        // Let Radix handle Esc naturally
-      }
     };
 
     window.addEventListener('keydown', handler);

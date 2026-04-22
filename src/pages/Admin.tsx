@@ -512,7 +512,7 @@ const Admin = () => {
               allProfiles.filter((p: any) => p.role === 'juridico' && !p.is_admin).map((p: any) => (
                 <div key={p.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-accent">
                   <div><p className="font-medium text-sm">{p.name}</p><p className="text-xs text-muted-foreground">{p.email}</p></div>
-                  <Button size="sm" onClick={async () => { await supabase.from('profiles').update({ is_admin: true }).eq('id', p.id); invalidateAll(); setAddAdminDialog(false); toast.success(p.name + ' agora é administrador!'); }}>Tornar admin</Button>
+                  <Button size="sm" onClick={async () => { try { await supabase.from('profiles').update({ is_admin: true }).eq('id', p.id); invalidateAll(); setAddAdminDialog(false); toast.success(p.name + ' agora é administrador!'); } catch { toast.error('Erro ao adicionar admin'); } }}>Tornar admin</Button>
                 </div>
               ))
             )}

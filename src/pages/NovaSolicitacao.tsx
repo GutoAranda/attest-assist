@@ -361,6 +361,7 @@ const NovaSolicitacao = () => {
                 solicitation_id: solId!,
               });
             }
+          }
         }
 
         // Send emails per area
@@ -377,7 +378,6 @@ const NovaSolicitacao = () => {
             employeeName, employeeRegistration, processNumber,
             deadline ? format(deadline, 'yyyy-MM-dd') : '', observations, areaDocs
           );
-        }
         }
       } else if (editId) {
         await supabase.from('audit_logs').insert({
