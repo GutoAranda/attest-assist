@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, ChevronDown, Upload, Send, FileText, Download, Loader2, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { buildStoragePublicUrl, openStorageFile } from '@/lib/storage';
+import { AttachmentActions } from '@/components/FilePreviewDialog';
 import { sendCommentEmail, sendConclusionEmail } from '@/lib/email';
 
 const DetalheTicketAtendente = () => {
@@ -366,9 +367,7 @@ const DetalheTicketAtendente = () => {
                 <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm flex-1 truncate">{a.file_name}</span>
                 <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
-                <Button variant="ghost" size="sm" onClick={() => openStorageFile(a.file_url)}>
-                  <Download className="h-4 w-4" /> Baixar
-                </Button>
+                <AttachmentActions fileUrl={a.file_url} fileName={a.file_name} />
               </div>
             ))}
           </div>
@@ -426,9 +425,9 @@ const DetalheTicketAtendente = () => {
                       }} />
                     </label>
                     {doc.file_url && (
-                      <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto text-xs" onClick={() => openStorageFile(doc.file_url)}>
-                        <Download className="h-3 w-3 mr-1" /> Ver arquivo atual
-                      </Button>
+                      <div className="mt-1">
+                        <AttachmentActions fileUrl={doc.file_url} fileName={doc.file_name || doc.document_name} compact />
+                      </div>
                     )}
                   </div>
                 )}
@@ -463,9 +462,7 @@ const DetalheTicketAtendente = () => {
                           <span className="font-medium text-foreground">Versão {idx + 1}</span>
                           <span className="text-xs text-muted-foreground">{v.file_name}</span>
                           <span className="text-xs text-muted-foreground">por {(v.profiles as any)?.name} • {new Date(v.uploaded_at).toLocaleString('pt-BR')}</span>
-                          <Button variant="ghost" size="sm" className="text-info h-auto p-0 text-xs" onClick={() => openStorageFile(v.file_url)}>
-                            <Download className="h-3 w-3 mr-1" /> Baixar
-                          </Button>
+                          <AttachmentActions fileUrl={v.file_url} fileName={v.file_name} compact />
                         </div>
                       ))}
                     </div>
