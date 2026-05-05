@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, Fil
 import { toast } from 'sonner';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { openStorageFile } from '@/lib/storage';
+import { AttachmentActions } from '@/components/FilePreviewDialog';
 import { sendRevisionEmail, sendCommentEmail, sendCancelEmail, sendConclusionEmail, sendReopenEmail, getAttendeesEmails } from '@/lib/email';
 import JSZip from 'jszip';
 
@@ -390,9 +391,7 @@ const DetalheTicketJuridico = () => {
                 <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm flex-1 truncate">{a.file_name}</span>
                 <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
-                <Button variant="ghost" size="sm" onClick={() => openStorageFile(a.file_url)}>
-                  <Download className="h-4 w-4" /> Baixar
-                </Button>
+                <AttachmentActions fileUrl={a.file_url} fileName={a.file_name} />
               </div>
             ))}
           </div>
@@ -421,9 +420,9 @@ const DetalheTicketJuridico = () => {
                 </div>
                 {doc.observations && <p className="text-sm text-muted-foreground mt-2">{doc.observations}</p>}
                 {doc.file_url && (
-                  <Button variant="ghost" size="sm" className="text-info mt-1 p-0 h-auto" onClick={() => openStorageFile(doc.file_url)}>
-                    <Download className="h-3 w-3 mr-1" /> Ver arquivo
-                  </Button>
+                  <div className="mt-1">
+                    <AttachmentActions fileUrl={doc.file_url} fileName={doc.file_name || doc.document_name} compact />
+                  </div>
                 )}
                 {doc.revision_reason && (
                   <div className="bg-status-revision/10 border-l-4 border-status-revision p-2 mt-2 rounded text-sm">
@@ -447,9 +446,7 @@ const DetalheTicketJuridico = () => {
                               <span className="font-medium text-foreground">Versão {idx + 1}</span>
                               <span className="text-xs text-muted-foreground">{v.file_name}</span>
                               <span className="text-xs text-muted-foreground">por {(v.profiles as any)?.name} • {new Date(v.uploaded_at).toLocaleString('pt-BR')}</span>
-                              <Button variant="ghost" size="sm" className="text-info h-auto p-0 text-xs" onClick={() => openStorageFile(v.file_url)}>
-                                <Download className="h-3 w-3 mr-1" /> Baixar
-                              </Button>
+                              <AttachmentActions fileUrl={v.file_url} fileName={v.file_name} compact />
                             </div>
                           </div>
                         ))}
