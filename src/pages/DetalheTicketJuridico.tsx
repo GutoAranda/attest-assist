@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, DocStatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2, PackageOpen, History } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2, PackageOpen, History, Trash2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { openStorageFile } from '@/lib/storage';
@@ -36,6 +37,10 @@ const DetalheTicketJuridico = () => {
   const [reopening, setReopening] = useState(false);
   const [zipping, setZipping] = useState(false);
   const [expandedVersions, setExpandedVersions] = useState<Record<string, boolean>>({});
+  const [deleteFilesDialog, setDeleteFilesDialog] = useState(false);
+  const [deletingFiles, setDeletingFiles] = useState(false);
+  const [changingAreaDoc, setChangingAreaDoc] = useState<{ id: string; name: string; oldAreaId: string; newAreaId: string } | null>(null);
+  const [changingArea, setChangingArea] = useState(false);
 
   // Typing indicator
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -102,7 +107,12 @@ const DetalheTicketJuridico = () => {
     },
   });
 
-  // Realtime typing indicator
+  const { data: activeAreas = [] } = useQuery({
+    queryKey: ['active-areas'],
+    queryFn: async () => (await supabase.from('areas').select('id, name').eq('active', true).order('name')).data || [],
+  });
+
+
   useEffect(() => {
     if (!id || !profile) return;
     const channel = supabase.channel(`typing-${id}`);
@@ -299,6 +309,99 @@ const DetalheTicketJuridico = () => {
     return match ? `.${match[1]}` : '';
   };
 
+  const extractStoragePath = (publicUrl: string): string | null => {
+    const m = publicUrl.match(/\/storage\/v1\/object\/(?:public|sign)\/solicitations\/([^?]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+
+  const handleDeleteFiles = async () => {
+    if (!profile) return;
+    setDeletingFiles(true);
+    try {
+      const paths: string[] = [];
+      const allAttIds: string[] = [];
+      [...attachments, ...docAttachments].forEach((a: any) => {
+        if (a.file_url && !a.deleted_at) {
+          const p = extractStoragePath(a.file_url);
+          if (p) paths.push(p);
+          allAttIds.push(a.id);
+        }
+      });
+      documents.forEach((d: any) => {
+        if (d.file_url) {
+          const p = extractStoragePath(d.file_url);
+          if (p) paths.push(p);
+        }
+      });
+      if (paths.length > 0) {
+        await supabase.storage.from('solicitations').remove(paths);
+      }
+      if (allAttIds.length > 0) {
+        await supabase.from('attachments').update({ file_url: null, deleted_at: new Date().toISOString(), deleted_by: profile.id } as any).in('id', allAttIds);
+      }
+      const docIds = documents.filter((d: any) => d.file_url).map((d: any) => d.id);
+      if (docIds.length > 0) {
+        await supabase.from('documents').update({ file_url: null }).in('id', docIds);
+      }
+      await supabase.from('audit_logs').insert({
+        solicitation_id: id!,
+        user_id: profile.id,
+        action: 'Arquivos excluídos',
+        details: `${paths.length} arquivo(s) removido(s) do ticket por ${profile.name}`,
+      });
+      toast.success('Arquivos excluídos com sucesso!');
+      setDeleteFilesDialog(false);
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast.error('Erro ao excluir arquivos: ' + err.message);
+    } finally {
+      setDeletingFiles(false);
+    }
+  };
+
+  const handleChangeArea = async () => {
+    if (!changingAreaDoc || !profile) return;
+    setChangingArea(true);
+    try {
+      const { id: docId, oldAreaId, newAreaId, name } = changingAreaDoc;
+      await supabase.from('documents').update({ responsible_area_id: newAreaId, status: 'pendente' }).eq('id', docId);
+      // Remove conclusion of old area (since the docs in that area changed)
+      await supabase.from('area_conclusions').delete().eq('solicitation_id', id!).eq('area_id', oldAreaId);
+
+      const newAreaName = activeAreas.find((a: any) => a.id === newAreaId)?.name || '';
+      const oldAreaName = (documents.find((d: any) => d.id === docId) as any)?.areas?.name || '';
+
+      await supabase.from('audit_logs').insert({
+        solicitation_id: id!,
+        user_id: profile.id,
+        action: 'Área do documento alterada',
+        details: `Documento "${name}" movido de "${oldAreaName}" para "${newAreaName}"`,
+      });
+
+      // Notify users in the new area
+      if (solicitation) {
+        const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').eq('area_id', newAreaId).eq('operation_id', solicitation.operation_id);
+        for (const a of assignments || []) {
+          await supabase.from('notifications').insert({
+            user_id: a.user_id,
+            type: 'nova_solicitacao',
+            message: `Documento "${name}" foi atribuído à sua área no ticket ${solicitation.ticket_id}`,
+            solicitation_id: id!,
+          });
+        }
+      }
+
+      toast.success('Área atualizada!');
+      setChangingAreaDoc(null);
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast.error('Erro ao alterar área: ' + err.message);
+    } finally {
+      setChangingArea(false);
+    }
+  };
+
+  const hasActiveFiles = documents.some((d: any) => d.file_url) || attachments.some((a: any) => a.file_url && !a.deleted_at) || docAttachments.some((a: any) => a.file_url && !a.deleted_at);
   const hasFiles = documents.some((d: any) => d.file_url) || attachments.length > 0 || docAttachments.length > 0;
 
   if (isLoading) return (
@@ -340,6 +443,11 @@ const DetalheTicketJuridico = () => {
             {solicitation.status !== 'cancelado' && solicitation.status !== 'concluido' && (
               <Button variant="destructive" size="sm" onClick={() => setCancelDialog(true)}>
                 <XCircle className="h-4 w-4 mr-1" /> Cancelar
+              </Button>
+            )}
+            {profile?.is_admin && (
+              <Button variant="destructive" size="sm" onClick={() => setDeleteFilesDialog(true)} disabled={!hasActiveFiles}>
+                <Trash2 className="h-4 w-4 mr-1" /> Excluir arquivos
               </Button>
             )}
           </div>
@@ -391,7 +499,11 @@ const DetalheTicketJuridico = () => {
                 <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm flex-1 truncate">{a.file_name}</span>
                 <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
-                <AttachmentActions fileUrl={a.file_url} fileName={a.file_name} />
+                {a.deleted_at ? (
+                  <span className="text-xs italic text-danger">Arquivo removido em {new Date(a.deleted_at).toLocaleDateString('pt-BR')}</span>
+                ) : a.file_url ? (
+                  <AttachmentActions fileUrl={a.file_url} fileName={a.file_name} />
+                ) : null}
               </div>
             ))}
           </div>
@@ -410,6 +522,23 @@ const DetalheTicketJuridico = () => {
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="font-semibold">{doc.document_name}</span>
                   <div className="flex items-center gap-2 flex-wrap">
+                    {(solicitation.status === 'aberto' || solicitation.status === 'em_atendimento') && (
+                      <Select
+                        value={doc.responsible_area_id}
+                        onValueChange={(newAreaId) => {
+                          if (newAreaId !== doc.responsible_area_id) {
+                            setChangingAreaDoc({ id: doc.id, name: doc.document_name, oldAreaId: doc.responsible_area_id, newAreaId });
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {activeAreas.map((a: any) => (
+                            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     <DocStatusBadge status={doc.status} />
                     {(doc.status === 'enviado' || doc.status === 'inexistente') && solicitation.status !== 'cancelado' && (
                       <Button variant="ghost" size="sm" className="text-status-revision" onClick={() => setRevisionDialog(doc.id)}>
@@ -550,6 +679,38 @@ const DetalheTicketJuridico = () => {
             <Button variant="outline" onClick={() => setReopenDialog(false)} className="w-full md:w-auto">Cancelar</Button>
             <Button onClick={handleReopen} disabled={reopening} className="w-full md:w-auto">
               {reopening ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Reabrir solicitação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete files dialog */}
+      <Dialog open={deleteFilesDialog} onOpenChange={setDeleteFilesDialog}>
+        <DialogContent className="max-w-[95vw] md:max-w-lg">
+          <DialogHeader><DialogTitle>Excluir arquivos do ticket</DialogTitle></DialogHeader>
+          <DialogDescription>
+            Esta ação removerá permanentemente {(documents.filter((d:any)=>d.file_url).length + attachments.filter((a:any)=>a.file_url && !a.deleted_at).length + docAttachments.filter((a:any)=>a.file_url && !a.deleted_at).length)} arquivo(s) deste ticket. Os registros serão preservados, mas os arquivos não poderão ser recuperados.
+          </DialogDescription>
+          <DialogFooter className="flex-col md:flex-row gap-2">
+            <Button variant="outline" onClick={() => setDeleteFilesDialog(false)} className="w-full md:w-auto">Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteFiles} disabled={deletingFiles} className="w-full md:w-auto">
+              {deletingFiles ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />} Confirmar exclusão
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change area dialog */}
+      <Dialog open={!!changingAreaDoc} onOpenChange={() => setChangingAreaDoc(null)}>
+        <DialogContent className="max-w-[95vw] md:max-w-lg">
+          <DialogHeader><DialogTitle>Alterar área do documento</DialogTitle></DialogHeader>
+          <DialogDescription>
+            Confirma mover o documento "{changingAreaDoc?.name}" para a área "{activeAreas.find((a:any)=>a.id===changingAreaDoc?.newAreaId)?.name}"? O status do documento será reiniciado para pendente e a nova área será notificada.
+          </DialogDescription>
+          <DialogFooter className="flex-col md:flex-row gap-2">
+            <Button variant="outline" onClick={() => setChangingAreaDoc(null)} className="w-full md:w-auto">Cancelar</Button>
+            <Button onClick={handleChangeArea} disabled={changingArea} className="w-full md:w-auto">
+              {changingArea ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Confirmar
             </Button>
           </DialogFooter>
         </DialogContent>

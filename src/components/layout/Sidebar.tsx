@@ -38,6 +38,7 @@ const Sidebar = ({ mobileOpen, onClose, collapsed = false, onToggleCollapse }: S
   ];
 
   const atendenteItems: MenuItem[] = [
+    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard-atendente' },
     { icon: FolderOpen, label: 'Minhas Solicitações', path: '/minhas-solicitacoes' },
     { icon: Bell, label: 'Notificações', path: '/notificacoes' },
   ];
