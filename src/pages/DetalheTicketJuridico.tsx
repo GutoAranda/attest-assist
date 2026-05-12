@@ -309,6 +309,99 @@ const DetalheTicketJuridico = () => {
     return match ? `.${match[1]}` : '';
   };
 
+  const extractStoragePath = (publicUrl: string): string | null => {
+    const m = publicUrl.match(/\/storage\/v1\/object\/(?:public|sign)\/solicitations\/([^?]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+
+  const handleDeleteFiles = async () => {
+    if (!profile) return;
+    setDeletingFiles(true);
+    try {
+      const paths: string[] = [];
+      const allAttIds: string[] = [];
+      [...attachments, ...docAttachments].forEach((a: any) => {
+        if (a.file_url && !a.deleted_at) {
+          const p = extractStoragePath(a.file_url);
+          if (p) paths.push(p);
+          allAttIds.push(a.id);
+        }
+      });
+      documents.forEach((d: any) => {
+        if (d.file_url) {
+          const p = extractStoragePath(d.file_url);
+          if (p) paths.push(p);
+        }
+      });
+      if (paths.length > 0) {
+        await supabase.storage.from('solicitations').remove(paths);
+      }
+      if (allAttIds.length > 0) {
+        await supabase.from('attachments').update({ file_url: null, deleted_at: new Date().toISOString(), deleted_by: profile.id } as any).in('id', allAttIds);
+      }
+      const docIds = documents.filter((d: any) => d.file_url).map((d: any) => d.id);
+      if (docIds.length > 0) {
+        await supabase.from('documents').update({ file_url: null }).in('id', docIds);
+      }
+      await supabase.from('audit_logs').insert({
+        solicitation_id: id!,
+        user_id: profile.id,
+        action: 'Arquivos excluídos',
+        details: `${paths.length} arquivo(s) removido(s) do ticket por ${profile.name}`,
+      });
+      toast.success('Arquivos excluídos com sucesso!');
+      setDeleteFilesDialog(false);
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast.error('Erro ao excluir arquivos: ' + err.message);
+    } finally {
+      setDeletingFiles(false);
+    }
+  };
+
+  const handleChangeArea = async () => {
+    if (!changingAreaDoc || !profile) return;
+    setChangingArea(true);
+    try {
+      const { id: docId, oldAreaId, newAreaId, name } = changingAreaDoc;
+      await supabase.from('documents').update({ responsible_area_id: newAreaId, status: 'pendente' }).eq('id', docId);
+      // Remove conclusion of old area (since the docs in that area changed)
+      await supabase.from('area_conclusions').delete().eq('solicitation_id', id!).eq('area_id', oldAreaId);
+
+      const newAreaName = activeAreas.find((a: any) => a.id === newAreaId)?.name || '';
+      const oldAreaName = (documents.find((d: any) => d.id === docId) as any)?.areas?.name || '';
+
+      await supabase.from('audit_logs').insert({
+        solicitation_id: id!,
+        user_id: profile.id,
+        action: 'Área do documento alterada',
+        details: `Documento "${name}" movido de "${oldAreaName}" para "${newAreaName}"`,
+      });
+
+      // Notify users in the new area
+      if (solicitation) {
+        const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').eq('area_id', newAreaId).eq('operation_id', solicitation.operation_id);
+        for (const a of assignments || []) {
+          await supabase.from('notifications').insert({
+            user_id: a.user_id,
+            type: 'nova_solicitacao',
+            message: `Documento "${name}" foi atribuído à sua área no ticket ${solicitation.ticket_id}`,
+            solicitation_id: id!,
+          });
+        }
+      }
+
+      toast.success('Área atualizada!');
+      setChangingAreaDoc(null);
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast.error('Erro ao alterar área: ' + err.message);
+    } finally {
+      setChangingArea(false);
+    }
+  };
+
+  const hasActiveFiles = documents.some((d: any) => d.file_url) || attachments.some((a: any) => a.file_url && !a.deleted_at) || docAttachments.some((a: any) => a.file_url && !a.deleted_at);
   const hasFiles = documents.some((d: any) => d.file_url) || attachments.length > 0 || docAttachments.length > 0;
 
   if (isLoading) return (
