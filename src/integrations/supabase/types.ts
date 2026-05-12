@@ -83,6 +83,8 @@ export type Database = {
       }
       attachments: {
         Row: {
+          deleted_at: string | null
+          deleted_by: string | null
           document_id: string | null
           file_name: string
           file_url: string
@@ -92,6 +94,8 @@ export type Database = {
           uploaded_by: string
         }
         Insert: {
+          deleted_at?: string | null
+          deleted_by?: string | null
           document_id?: string | null
           file_name: string
           file_url: string
@@ -101,6 +105,8 @@ export type Database = {
           uploaded_by: string
         }
         Update: {
+          deleted_at?: string | null
+          deleted_by?: string | null
           document_id?: string | null
           file_name?: string
           file_url?: string
@@ -490,6 +496,7 @@ export type Database = {
           ticket_id: string
         }[]
       }
+      generate_operation_ticket_id: { Args: { op_id: string }; Returns: string }
       generate_ticket_id: { Args: never; Returns: string }
       get_my_profile_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
