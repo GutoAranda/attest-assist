@@ -37,6 +37,10 @@ const DetalheTicketJuridico = () => {
   const [reopening, setReopening] = useState(false);
   const [zipping, setZipping] = useState(false);
   const [expandedVersions, setExpandedVersions] = useState<Record<string, boolean>>({});
+  const [deleteFilesDialog, setDeleteFilesDialog] = useState(false);
+  const [deletingFiles, setDeletingFiles] = useState(false);
+  const [changingAreaDoc, setChangingAreaDoc] = useState<{ id: string; name: string; oldAreaId: string; newAreaId: string } | null>(null);
+  const [changingArea, setChangingArea] = useState(false);
 
   // Typing indicator
   const [typingUser, setTypingUser] = useState<string | null>(null);
