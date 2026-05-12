@@ -22,7 +22,13 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
-          light: "hsl(var(--primary-light))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+          hover: "hsl(var(--accent-hover))",
+          brand: "hsl(var(--accent-brand))",
+          "brand-hover": "hsl(var(--accent-brand-hover))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",

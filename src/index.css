@@ -4,116 +4,118 @@
 
 @layer base {
   :root {
-    --background: 220 14% 96%;
-    --foreground: 220 39% 11%;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 16%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 39% 11%;
+    --card-foreground: 0 0% 16%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 39% 11%;
+    --popover-foreground: 0 0% 16%;
 
-    --primary: 213 52% 24%;
+    --primary: 0 0% 16%;
     --primary-foreground: 0 0% 100%;
 
-    --primary-light: 211 42% 36%;
-    --primary-light-foreground: 0 0% 100%;
+    --accent-brand: 75 67% 81%;
+    --accent-brand-hover: 75 33% 67%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 213 52% 24%;
+    --secondary: 30 20% 96%;
+    --secondary-foreground: 0 0% 16%;
 
-    --muted: 220 13% 91%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 30 20% 96%;
+    --muted-foreground: 75 8% 59%;
 
-    --accent: 220 14% 96%;
-    --accent-foreground: 213 52% 24%;
+    --accent: 30 20% 96%;
+    --accent-foreground: 0 0% 16%;
+    --accent-hover: 30 15% 91%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 5 95% 61%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 213 52% 24%;
+    --border: 30 4% 72%;
+    --input: 30 4% 72%;
+    --ring: 0 0% 16%;
 
     --radius: 0.5rem;
 
     /* Status colors */
-    --status-open: 217 91% 60%;
-    --status-in-progress: 38 92% 50%;
-    --status-partial: 213 52% 24%;
-    --status-done: 142 71% 45%;
-    --status-cancelled: 220 9% 46%;
-    --status-draft: 220 13% 91%;
-    --status-revision: 24 94% 53%;
+    --status-open: 195 25% 87%;
+    --status-in-progress: 39 88% 86%;
+    --status-partial: 39 20% 83%;
+    --status-done: 75 20% 78%;
+    --status-cancelled: 5 100% 93%;
+    --status-draft: 30 20% 96%;
+    --status-revision: 345 68% 39%;
 
-    --danger: 0 72% 51%;
-    --warning: 38 92% 50%;
-    --success: 142 71% 45%;
-    --info: 217 91% 60%;
+    --danger: 5 95% 61%;
+    --warning: 39 88% 62%;
+    --success: 75 36% 17%;
+    --info: 195 22% 32%;
 
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 213 52% 24%;
-    --sidebar-primary: 213 52% 24%;
+    --sidebar-background: 0 0% 16%;
+    --sidebar-foreground: 75 8% 59%;
+    --sidebar-primary: 0 0% 16%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 96%;
-    --sidebar-accent-foreground: 213 52% 24%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 213 52% 24%;
+    --sidebar-accent: 75 67% 81%;
+    --sidebar-accent-foreground: 0 0% 16%;
+    --sidebar-border: 30 4% 72%;
+    --sidebar-ring: 0 0% 16%;
   }
 
   .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
+    --background: 0 0% 8%;
+    --foreground: 30 20% 96%;
 
-    --card: 222 47% 15%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 16%;
+    --card-foreground: 30 20% 96%;
 
-    --popover: 222 47% 15%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 16%;
+    --popover-foreground: 30 20% 96%;
 
-    --primary: 213 52% 24%;
+    --primary: 0 0% 16%;
     --primary-foreground: 0 0% 100%;
 
-    --primary-light: 211 42% 36%;
-    --primary-light-foreground: 0 0% 100%;
+    --accent-brand: 75 67% 81%;
+    --accent-brand-hover: 75 33% 67%;
 
-    --secondary: 222 47% 20%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 30 20% 96%;
 
-    --muted: 222 47% 20%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 75 8% 59%;
 
-    --accent: 222 47% 20%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 30 20% 96%;
+    --accent-hover: 75 36% 17%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 5 95% 61%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 222 47% 25%;
-    --input: 222 47% 25%;
-    --ring: 213 52% 40%;
+    --border: 75 36% 17%;
+    --input: 75 36% 17%;
+    --ring: 0 0% 16%;
 
-    --status-open: 217 91% 60%;
-    --status-in-progress: 38 92% 50%;
-    --status-partial: 213 52% 40%;
-    --status-done: 142 71% 45%;
-    --status-cancelled: 220 9% 46%;
-    --status-draft: 222 47% 25%;
-    --status-revision: 24 94% 53%;
+    --status-open: 195 25% 87%;
+    --status-in-progress: 39 88% 86%;
+    --status-partial: 39 20% 83%;
+    --status-done: 75 20% 78%;
+    --status-cancelled: 5 100% 93%;
+    --status-draft: 0 0% 16%;
+    --status-revision: 345 68% 39%;
 
-    --danger: 0 72% 51%;
-    --warning: 38 92% 50%;
-    --success: 142 71% 45%;
-    --info: 217 91% 60%;
+    --danger: 5 95% 61%;
+    --warning: 39 88% 62%;
+    --success: 75 36% 17%;
+    --info: 195 22% 32%;
 
-    --sidebar-background: 222 47% 13%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 213 52% 24%;
+    --sidebar-background: 0 0% 16%;
+    --sidebar-foreground: 75 8% 59%;
+    --sidebar-primary: 0 0% 16%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 47% 20%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 222 47% 25%;
-    --sidebar-ring: 213 52% 40%;
+    --sidebar-accent: 75 67% 81%;
+    --sidebar-accent-foreground: 0 0% 16%;
+    --sidebar-border: 75 36% 17%;
+    --sidebar-ring: 0 0% 16%;
   }
 }
 

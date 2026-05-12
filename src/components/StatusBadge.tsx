@@ -14,11 +14,11 @@ const statusLabels: Record<SolicitationStatus, string> = {
 
 const statusStyles: Record<SolicitationStatus, string> = {
   rascunho: 'bg-muted text-muted-foreground',
-  aberto: 'bg-status-open text-primary-foreground',
-  em_atendimento: 'bg-status-in-progress text-primary-foreground',
-  parcialmente_concluido: 'bg-status-partial text-primary-foreground',
-  concluido: 'bg-status-done text-primary-foreground',
-  cancelado: 'bg-status-cancelled text-primary-foreground',
+  aberto: 'bg-status-open text-info',
+  em_atendimento: 'bg-status-in-progress text-warning',
+  parcialmente_concluido: 'bg-status-partial text-muted-foreground',
+  concluido: 'bg-status-done text-success',
+  cancelado: 'bg-status-cancelled text-destructive',
 };
 
 const docStatusLabels: Record<DocumentStatus, string> = {
@@ -37,11 +37,11 @@ export const StatusBadge = ({ status }: { status: SolicitationStatus }) => (
 
 export const DocStatusBadge = ({ status }: { status: DocumentStatus }) => {
   const styles: Record<DocumentStatus, string> = {
-    pendente: 'bg-muted text-muted-foreground',
+    pendente: 'bg-info/10 border border-info/30 text-info',
     enviado: 'bg-success/10 border border-success/30 text-success',
-    em_busca: 'bg-muted text-muted-foreground border border-border',
-    inexistente: 'bg-danger/10 border border-danger text-danger',
-    revisao_solicitada: 'bg-status-revision/10 border border-status-revision text-status-revision',
+    em_busca: 'bg-warning/10 border border-warning/30 text-warning',
+    inexistente: 'bg-destructive/10 border border-destructive/30 text-destructive',
+    revisao_solicitada: 'bg-status-revision/10 border border-status-revision/30 text-status-revision',
   };
   return (
     <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium', styles[status])}>

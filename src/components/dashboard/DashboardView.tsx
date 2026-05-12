@@ -219,8 +219,8 @@ export const DashboardView = ({ mode, scope, profileId }: Props) => {
       if (conc <= dl) onTime++; else late++;
     });
     return [
-      { name: 'Dentro do prazo', value: onTime, color: '#22C55E' },
-      { name: 'Fora do prazo', value: late, color: '#EF4444' },
+      { name: 'Dentro do prazo', value: onTime, color: '#CDD4C1' },
+      { name: 'Fora do prazo', value: late, color: '#FA4939' },
     ].filter(x => x.value > 0);
   }, [concluded]);
 
@@ -235,9 +235,9 @@ export const DashboardView = ({ mode, scope, profileId }: Props) => {
       });
     });
     return [
-      { name: 'Enviados', value: enviado, color: '#22C55E' },
-      { name: 'Inexistente c/ justificativa', value: inexJ, color: '#F59E0B' },
-      { name: 'Pendentes', value: pend, color: '#9CA3AF' },
+      { name: 'Enviados', value: enviado, color: '#CDD4C1' },
+      { name: 'Inexistente c/ justificativa', value: inexJ, color: '#F4B145' },
+      { name: 'Pendentes', value: pend, color: '#D6E2E7' },
     ].filter(x => x.value > 0);
   }, [filteredSols, mode, allowedPairSet, selAreas]);
 
@@ -449,7 +449,7 @@ export const DashboardView = ({ mode, scope, profileId }: Props) => {
                   <XAxis dataKey="label" />
                   <YAxis allowDecimals={false} />
                   <Tooltip />
-                  <Bar dataKey="count" fill="hsl(213, 52%, 24%)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill="#CDD4C1" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </Card>
