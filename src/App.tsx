@@ -26,7 +26,7 @@ const ProtectedRoute = ({ children, roles }: { children: React.ReactNode; roles?
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Carregando...</div>;
   if (!profile) return <Navigate to="/login" />;
   if (roles && !roles.includes(profile.role)) {
-    return <Navigate to={profile.role === 'juridico' ? '/dashboard' : '/minhas-solicitacoes'} />;
+    return <Navigate to={profile.role === 'juridico' ? '/dashboard' : '/dashboard-atendente'} />;
   }
   return <>{children}</>;
 };
@@ -35,7 +35,7 @@ const AuthRedirect = () => {
   const { profile, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Carregando...</div>;
   if (!profile) return <Navigate to="/login" />;
-  return <Navigate to={profile.role === 'juridico' ? '/dashboard' : '/minhas-solicitacoes'} />;
+  return <Navigate to={profile.role === 'juridico' ? '/dashboard' : '/dashboard-atendente'} />;
 };
 
 const App = () => (
