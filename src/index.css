@@ -4,118 +4,133 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 16%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 16%;
-
+    /* ===== Backgrounds ===== */
+    --background: 0 0% 100%;                    /* #FFFFFF */
+    --foreground: 0 0% 16%;                     /* #2A2A2A LOTS Black */
+    --card: 0 0% 100%;                          /* #FFFFFF */
+    --card-foreground: 0 0% 16%;                /* #2A2A2A */
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 16%;
 
-    --primary: 0 0% 16%;
-    --primary-foreground: 0 0% 100%;
+    /* ===== Marca ===== */
+    --primary: 0 0% 16%;                        /* #2A2A2A LOTS Black */
+    --primary-foreground: 0 0% 100%;            /* #FFFFFF */
 
-    --accent-brand: 75 67% 81%;
-    --accent-brand-hover: 75 33% 67%;
+    /* ===== Acento de marca (LOTS Green) ===== */
+    --accent: 84 65% 81%;                       /* #D6EEB1 LOTS Green */
+    --accent-foreground: 0 0% 16%;              /* #2A2A2A */
+    --accent-hover: 84 33% 71%;                 /* #B2C793 LOTS Green 3 */
+    --accent-selected: 84 65% 90%;              /* #EAF5D6 LOTS Green 30% */
 
-    --secondary: 30 20% 96%;
+    /* ===== Neutros / Beige ===== */
+    --secondary: 36 17% 95%;                    /* #F5F3F0 LOTS Beige */
     --secondary-foreground: 0 0% 16%;
+    --muted: 36 13% 91%;                        /* #E7E4DF LOTS Beige 2 */
+    --muted-foreground: 0 0% 42%;               /* #6B6B6B texto secundário */
+    --muted-foreground-2: 0 0% 54%;             /* #8A8A8A texto auxiliar */
 
-    --muted: 30 20% 96%;
-    --muted-foreground: 75 8% 59%;
+    /* ===== Bordas e separadores ===== */
+    --border: 36 13% 81%;                       /* #D4D0CA borda visível */
+    --border-strong: 30 5% 73%;                 /* #BAB8B5 LOTS Beige 3 */
+    --divider: 36 17% 95%;                      /* #F5F3F0 divisor sutil */
+    --input: 36 13% 81%;                        /* #D4D0CA */
 
-    --accent: 30 20% 96%;
-    --accent-foreground: 0 0% 16%;
-    --accent-hover: 30 15% 91%;
+    /* ===== Focus / Info ===== */
+    --ring: 200 22% 32%;                        /* #3F5863 Sea 3 - focus ring */
+    --info: 200 22% 32%;                        /* #3F5863 Sea 3 */
+    --info-foreground: 0 0% 100%;
 
-    --destructive: 5 95% 61%;
+    /* ===== Status semânticos ===== */
+    --success: 142 71% 29%;                     /* #15803D verde sucesso */
+    --success-foreground: 0 0% 100%;
+    --warning: 28 91% 36%;                      /* #B45309 âmbar alerta */
+    --warning-foreground: 0 0% 100%;
+    --destructive: 5 64% 48%;                   /* #C8392E erro */
     --destructive-foreground: 0 0% 100%;
+    --review: 345 68% 39%;                      /* #A8203D revisão solicitada */
+    --review-foreground: 0 0% 100%;
 
-    --border: 30 4% 72%;
-    --input: 30 4% 72%;
-    --ring: 0 0% 16%;
+    /* ===== Badges - Background ===== */
+    --badge-open-bg: 197 30% 88%;               /* #D6E2E7 Sea 1 */
+    --badge-open-fg: 200 39% 20%;               /* #1F3A47 */
+    --badge-progress-bg: 48 96% 89%;            /* #FEF3C7 */
+    --badge-progress-fg: 30 80% 26%;            /* #854D0E */
+    --badge-partial-bg: 36 18% 83%;             /* #DBD6CB Sand 1 */
+    --badge-partial-fg: 22 23% 24%;             /* #4A3A2F */
+    --badge-done-bg: 141 79% 87%;               /* #DCFCE7 */
+    --badge-done-fg: 144 61% 20%;               /* #14532D */
+    --badge-cancelled-bg: 0 93% 94%;            /* #FEE2E2 */
+    --badge-cancelled-fg: 0 70% 35%;            /* #991B1B */
+
+    /* ===== Disabled ===== */
+    --disabled-bg: 36 13% 91%;                  /* #E7E4DF */
+    --disabled-fg: 0 0% 54%;                    /* #8A8A8A */
 
     --radius: 0.5rem;
-
-    /* Status colors */
-    --status-open: 195 25% 87%;
-    --status-in-progress: 39 88% 86%;
-    --status-partial: 39 20% 83%;
-    --status-done: 75 20% 78%;
-    --status-cancelled: 5 100% 93%;
-    --status-draft: 30 20% 96%;
-    --status-revision: 345 68% 39%;
-
-    --danger: 5 95% 61%;
-    --warning: 39 88% 62%;
-    --success: 75 36% 17%;
-    --info: 195 22% 32%;
-
-    --sidebar-background: 0 0% 16%;
-    --sidebar-foreground: 75 8% 59%;
-    --sidebar-primary: 0 0% 16%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 75 67% 81%;
-    --sidebar-accent-foreground: 0 0% 16%;
-    --sidebar-border: 30 4% 72%;
-    --sidebar-ring: 0 0% 16%;
   }
 
   .dark {
-    --background: 0 0% 8%;
-    --foreground: 30 20% 96%;
-
-    --card: 0 0% 16%;
-    --card-foreground: 30 20% 96%;
-
+    /* ===== Backgrounds ===== */
+    --background: 0 0% 4%;                      /* #0A0A0A */
+    --foreground: 36 17% 95%;                   /* #F5F3F0 LOTS Beige */
+    --card: 0 0% 16%;                           /* #2A2A2A LOTS Black */
+    --card-foreground: 36 17% 95%;
     --popover: 0 0% 16%;
-    --popover-foreground: 30 20% 96%;
+    --popover-foreground: 36 17% 95%;
 
-    --primary: 0 0% 16%;
-    --primary-foreground: 0 0% 100%;
+    /* ===== Marca ===== */
+    --primary: 36 17% 95%;                      /* #F5F3F0 - inverte no dark */
+    --primary-foreground: 0 0% 16%;             /* #2A2A2A */
 
-    --accent-brand: 75 67% 81%;
-    --accent-brand-hover: 75 33% 67%;
+    /* ===== Acento de marca ===== */
+    --accent: 84 65% 81%;                       /* #D6EEB1 LOTS Green */
+    --accent-foreground: 0 0% 16%;
+    --accent-hover: 84 33% 71%;                 /* #B2C793 */
+    --accent-selected: 84 30% 25%;              /* verde escurecido para dark */
 
-    --secondary: 0 0% 16%;
-    --secondary-foreground: 30 20% 96%;
+    /* ===== Neutros ===== */
+    --secondary: 0 0% 16%;                      /* #2A2A2A */
+    --secondary-foreground: 36 17% 95%;
+    --muted: 0 0% 23%;                          /* #3A3A3A hover de linha */
+    --muted-foreground: 0 0% 72%;               /* #B8B8B8 */
+    --muted-foreground-2: 0 0% 54%;             /* #8A8A8A */
 
-    --muted: 0 0% 16%;
-    --muted-foreground: 75 8% 59%;
+    /* ===== Bordas ===== */
+    --border: 0 0% 25%;                         /* #404040 */
+    --border-strong: 0 0% 32%;                  /* #515151 */
+    --divider: 0 0% 16%;                        /* #2A2A2A */
+    --input: 0 0% 25%;
 
-    --accent: 0 0% 16%;
-    --accent-foreground: 30 20% 96%;
-    --accent-hover: 75 36% 17%;
+    /* ===== Focus / Info ===== */
+    --ring: 210 17% 66%;                        /* #9DAAB6 Sea 2 */
+    --info: 210 17% 66%;                        /* #9DAAB6 Sea 2 */
+    --info-foreground: 0 0% 4%;
 
-    --destructive: 5 95% 61%;
-    --destructive-foreground: 0 0% 100%;
+    /* ===== Status (mais claros no dark) ===== */
+    --success: 142 71% 58%;                     /* #4ADE80 */
+    --success-foreground: 0 0% 4%;
+    --warning: 43 96% 56%;                      /* #FBBF24 */
+    --warning-foreground: 0 0% 4%;
+    --destructive: 0 88% 71%;                   /* #F87171 */
+    --destructive-foreground: 0 0% 4%;
+    --review: 345 68% 60%;
+    --review-foreground: 0 0% 4%;
 
-    --border: 75 36% 17%;
-    --input: 75 36% 17%;
-    --ring: 0 0% 16%;
+    /* ===== Badges no dark - fundos mais escuros, texto claro ===== */
+    --badge-open-bg: 200 39% 20%;
+    --badge-open-fg: 197 30% 88%;
+    --badge-progress-bg: 30 80% 26%;
+    --badge-progress-fg: 48 96% 89%;
+    --badge-partial-bg: 22 23% 24%;
+    --badge-partial-fg: 36 18% 83%;
+    --badge-done-bg: 144 61% 20%;
+    --badge-done-fg: 141 79% 87%;
+    --badge-cancelled-bg: 0 70% 35%;
+    --badge-cancelled-fg: 0 93% 94%;
 
-    --status-open: 195 25% 87%;
-    --status-in-progress: 39 88% 86%;
-    --status-partial: 39 20% 83%;
-    --status-done: 75 20% 78%;
-    --status-cancelled: 5 100% 93%;
-    --status-draft: 0 0% 16%;
-    --status-revision: 345 68% 39%;
-
-    --danger: 5 95% 61%;
-    --warning: 39 88% 62%;
-    --success: 75 36% 17%;
-    --info: 195 22% 32%;
-
-    --sidebar-background: 0 0% 16%;
-    --sidebar-foreground: 75 8% 59%;
-    --sidebar-primary: 0 0% 16%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 75 67% 81%;
-    --sidebar-accent-foreground: 0 0% 16%;
-    --sidebar-border: 75 36% 17%;
-    --sidebar-ring: 0 0% 16%;
+    /* ===== Disabled ===== */
+    --disabled-bg: 0 0% 23%;
+    --disabled-fg: 0 0% 54%;
   }
 }
 

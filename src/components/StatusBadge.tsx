@@ -14,11 +14,11 @@ const statusLabels: Record<SolicitationStatus, string> = {
 
 const statusStyles: Record<SolicitationStatus, string> = {
   rascunho: 'bg-muted text-muted-foreground',
-  aberto: 'bg-status-open text-info',
-  em_atendimento: 'bg-status-in-progress text-warning',
-  parcialmente_concluido: 'bg-status-partial text-muted-foreground',
-  concluido: 'bg-status-done text-success',
-  cancelado: 'bg-status-cancelled text-destructive',
+  aberto: 'bg-badge-open-bg text-badge-open-fg',
+  em_atendimento: 'bg-badge-progress-bg text-badge-progress-fg',
+  parcialmente_concluido: 'bg-badge-partial-bg text-badge-partial-fg',
+  concluido: 'bg-badge-done-bg text-badge-done-fg',
+  cancelado: 'bg-badge-cancelled-bg text-badge-cancelled-fg',
 };
 
 const docStatusLabels: Record<DocumentStatus, string> = {

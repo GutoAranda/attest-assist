@@ -84,7 +84,7 @@ const Sidebar = ({ mobileOpen, onClose, collapsed = false, onToggleCollapse }: S
                 onClick={() => handleNavigate(item.path)}
                 className={cn(
                   "flex items-center gap-3 mx-2 px-3 py-2 rounded-lg transition-colors text-sm w-[calc(100%-16px)]",
-                  isActive(item.path) ? "bg-accent-brand text-primary" : "text-muted-foreground hover:bg-accent"
+                  isActive(item.path) ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"
                 )}
               >
                 <item.icon className="h-5 w-5 shrink-0" />
@@ -110,7 +110,7 @@ const Sidebar = ({ mobileOpen, onClose, collapsed = false, onToggleCollapse }: S
               className={cn(
                 "flex items-center gap-3 mx-2 px-3 py-2 rounded-lg transition-colors text-sm",
                 collapsed ? "justify-center w-[calc(100%-16px)]" : "w-[calc(100%-16px)]",
-                isActive(item.path) ? "bg-accent-brand text-primary" : "text-muted-foreground hover:bg-accent"
+                isActive(item.path) ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"
               )}
             >
               <item.icon className="h-5 w-5 shrink-0" />

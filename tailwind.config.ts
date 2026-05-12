@@ -15,6 +15,8 @@ export default {
     extend: {
       colors: {
         border: "hsl(var(--border))",
+        "border-strong": "hsl(var(--border-strong))",
+        divider: "hsl(var(--divider))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
@@ -23,60 +25,65 @@ export default {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
         },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-          hover: "hsl(var(--accent-hover))",
-          brand: "hsl(var(--accent-brand))",
-          "brand-hover": "hsl(var(--accent-brand-hover))",
-        },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
         },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+          hover: "hsl(var(--accent-hover))",
+          selected: "hsl(var(--accent-selected))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",
           foreground: "hsl(var(--muted-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
+          foreground2: "hsl(var(--muted-foreground-2))",
         },
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
         },
-        status: {
-          open: "hsl(var(--status-open))",
-          "in-progress": "hsl(var(--status-in-progress))",
-          partial: "hsl(var(--status-partial))",
-          done: "hsl(var(--status-done))",
-          cancelled: "hsl(var(--status-cancelled))",
-          draft: "hsl(var(--status-draft))",
-          revision: "hsl(var(--status-revision))",
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
         },
-        danger: "hsl(var(--danger))",
-        warning: "hsl(var(--warning))",
-        success: "hsl(var(--success))",
-        info: "hsl(var(--info))",
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+        },
+        review: {
+          DEFAULT: "hsl(var(--review))",
+          foreground: "hsl(var(--review-foreground))",
+        },
+        disabled: {
+          DEFAULT: "hsl(var(--disabled-bg))",
+          foreground: "hsl(var(--disabled-fg))",
+        },
+        badge: {
+          "open-bg": "hsl(var(--badge-open-bg))",
+          "open-fg": "hsl(var(--badge-open-fg))",
+          "progress-bg": "hsl(var(--badge-progress-bg))",
+          "progress-fg": "hsl(var(--badge-progress-fg))",
+          "partial-bg": "hsl(var(--badge-partial-bg))",
+          "partial-fg": "hsl(var(--badge-partial-fg))",
+          "done-bg": "hsl(var(--badge-done-bg))",
+          "done-fg": "hsl(var(--badge-done-fg))",
+          "cancelled-bg": "hsl(var(--badge-cancelled-bg))",
+          "cancelled-fg": "hsl(var(--badge-cancelled-fg))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

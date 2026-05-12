@@ -114,7 +114,7 @@ const Header = ({ onToggleSidebar }: HeaderProps) => {
           </Button>
         )}
         <div className="flex items-baseline gap-1 cursor-pointer" onClick={() => navigate(profile?.role === 'juridico' ? '/dashboard' : '/minhas-solicitacoes')}>
-          <span className="text-accent-brand font-bold text-xl tracking-wider">LOTS</span>
+          <span className="text-accent font-bold text-xl tracking-wider">LOTS</span>
           <span className="text-primary-foreground/70 font-light text-sm">DocFlow</span>
         </div>
         {!isMobile && <span className="text-primary-foreground/30 ml-2">|</span>}

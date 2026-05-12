@@ -67,12 +67,12 @@ const BulkDocumentImport = ({ areas, onImport }: BulkDocumentImportProps) => {
   };
 
   return (
-    <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+    <div className="bg-secondary rounded-lg p-4 mb-6 border border-border">
       <div className="flex items-center gap-2 mb-1">
-        <FileText className="h-4 w-4 text-[#1E3A5F]" />
-        <span className="text-sm font-semibold text-[#1E3A5F]">Importar em lote</span>
+        <FileText className="h-4 w-4 text-primary" />
+        <span className="text-sm font-semibold text-primary">Importar em lote</span>
       </div>
-      <p className="text-xs text-gray-500 mb-3">
+      <p className="text-xs text-muted-foreground mb-3">
         Cole uma lista de documentos agrupados por área
       </p>
       <div className="flex gap-3">
@@ -85,7 +85,7 @@ const BulkDocumentImport = ({ areas, onImport }: BulkDocumentImportProps) => {
         />
         <Button
           onClick={handleImport}
-          className="self-start bg-[#1E3A5F] hover:bg-[#1E3A5F]/90 text-white"
+          className="self-start bg-primary hover:bg-primary/90 text-primary-foreground"
           disabled={!bulkText.trim()}
         >
           Importar lista

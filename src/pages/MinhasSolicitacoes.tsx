@@ -19,11 +19,11 @@ type SortCol = 'ticket_id' | 'status' | 'operation' | 'process_number' | 'employ
 const PAGE_SIZE = 10;
 
 const STATUS_COLORS: Record<string, string> = {
-  pendente: '#3b82f6',
-  em_busca: '#f59e0b',
-  enviado: '#22c55e',
-  inexistente: '#ef4444',
-  revisao_solicitada: '#f97316',
+  pendente: '#3F5863',
+  em_busca: '#F4B145',
+  enviado: '#15803D',
+  inexistente: '#C8392E',
+  revisao_solicitada: '#A8203D',
 };
 
 const STATUS_LABELS: Record<string, string> = {

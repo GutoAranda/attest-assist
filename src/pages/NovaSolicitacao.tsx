@@ -531,10 +531,10 @@ const NovaSolicitacao = () => {
 
         <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
           <Button variant="outline" className="text-muted-foreground" onClick={() => setCancelDialog(true)}>Cancelar</Button>
-          <Button className="bg-primary-light text-primary-foreground hover:bg-primary-light/90" onClick={() => save(true)} disabled={saving}>
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save(true)} disabled={saving}>
             {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Salvando...</> : 'Salvar rascunho'}
           </Button>
-          <Button onClick={() => save(false)} disabled={saving}>
+          <Button className="bg-accent text-accent-foreground hover:bg-accent-hover" onClick={() => save(false)} disabled={saving}>
             {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Enviando...</> : 'Enviar solicitação'}
           </Button>
         </div>
