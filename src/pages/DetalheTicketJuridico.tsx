@@ -683,6 +683,38 @@ const DetalheTicketJuridico = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete files dialog */}
+      <Dialog open={deleteFilesDialog} onOpenChange={setDeleteFilesDialog}>
+        <DialogContent className="max-w-[95vw] md:max-w-lg">
+          <DialogHeader><DialogTitle>Excluir arquivos do ticket</DialogTitle></DialogHeader>
+          <DialogDescription>
+            Esta ação removerá permanentemente {(documents.filter((d:any)=>d.file_url).length + attachments.filter((a:any)=>a.file_url && !a.deleted_at).length + docAttachments.filter((a:any)=>a.file_url && !a.deleted_at).length)} arquivo(s) deste ticket. Os registros serão preservados, mas os arquivos não poderão ser recuperados.
+          </DialogDescription>
+          <DialogFooter className="flex-col md:flex-row gap-2">
+            <Button variant="outline" onClick={() => setDeleteFilesDialog(false)} className="w-full md:w-auto">Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteFiles} disabled={deletingFiles} className="w-full md:w-auto">
+              {deletingFiles ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />} Confirmar exclusão
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change area dialog */}
+      <Dialog open={!!changingAreaDoc} onOpenChange={() => setChangingAreaDoc(null)}>
+        <DialogContent className="max-w-[95vw] md:max-w-lg">
+          <DialogHeader><DialogTitle>Alterar área do documento</DialogTitle></DialogHeader>
+          <DialogDescription>
+            Confirma mover o documento "{changingAreaDoc?.name}" para a área "{activeAreas.find((a:any)=>a.id===changingAreaDoc?.newAreaId)?.name}"? O status do documento será reiniciado para pendente e a nova área será notificada.
+          </DialogDescription>
+          <DialogFooter className="flex-col md:flex-row gap-2">
+            <Button variant="outline" onClick={() => setChangingAreaDoc(null)} className="w-full md:w-auto">Cancelar</Button>
+            <Button onClick={handleChangeArea} disabled={changingArea} className="w-full md:w-auto">
+              {changingArea ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
