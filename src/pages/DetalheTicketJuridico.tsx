@@ -267,7 +267,7 @@ const DetalheTicketJuridico = () => {
       const allFiles: { name: string; url: string }[] = [];
 
       documents.forEach((doc: any) => {
-        if (doc.file_url) allFiles.push({ name: `documentos/${doc.document_name}${getFileExtFromUrl(doc.file_url)}`, url: doc.file_url });
+        if (doc.file_url) allFiles.push({ name: `documentos/${sanitizeFileName(doc.document_name)}${getFileExtFromUrl(doc.file_url)}`, url: doc.file_url });
       });
       attachments.forEach((a: any) => {
         allFiles.push({ name: `anexos/${a.file_name}`, url: a.file_url });
@@ -302,6 +302,10 @@ const DetalheTicketJuridico = () => {
     } finally {
       setZipping(false);
     }
+  };
+
+  const sanitizeFileName = (name: string) => {
+    return name.replace(/[\/\\:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
   };
 
   const getFileExtFromUrl = (url: string) => {
