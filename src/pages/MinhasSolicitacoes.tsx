@@ -225,37 +225,6 @@ const MinhasSolicitacoes = () => {
         <Card className="p-4 md:p-6 text-center"><p className="text-2xl md:text-3xl font-bold text-primary">{pendingDocs}</p><p className="text-xs md:text-sm text-muted-foreground">Docs pendentes</p></Card>
       </div>
 
-      {/* Dashboard charts */}
-      {allItems.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <Card className="p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Documentos por Status</h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={docStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={2}>
-                  {docStatusData.map((entry, i) => (
-                    <Cell key={i} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: '12px' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </Card>
-          <Card className="p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Tickets por Operação</h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={operationData}>
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="count" fill="hsl(213, 52%, 24%)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </Card>
-        </div>
-      )}
-
       {/* Mobile cards or desktop table */}
       {isMobile ? (
         <div className="space-y-3">
