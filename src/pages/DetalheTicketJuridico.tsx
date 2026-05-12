@@ -522,6 +522,23 @@ const DetalheTicketJuridico = () => {
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="font-semibold">{doc.document_name}</span>
                   <div className="flex items-center gap-2 flex-wrap">
+                    {(solicitation.status === 'aberto' || solicitation.status === 'em_atendimento') && (
+                      <Select
+                        value={doc.responsible_area_id}
+                        onValueChange={(newAreaId) => {
+                          if (newAreaId !== doc.responsible_area_id) {
+                            setChangingAreaDoc({ id: doc.id, name: doc.document_name, oldAreaId: doc.responsible_area_id, newAreaId });
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {activeAreas.map((a: any) => (
+                            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     <DocStatusBadge status={doc.status} />
                     {(doc.status === 'enviado' || doc.status === 'inexistente') && solicitation.status !== 'cancelado' && (
                       <Button variant="ghost" size="sm" className="text-status-revision" onClick={() => setRevisionDialog(doc.id)}>
