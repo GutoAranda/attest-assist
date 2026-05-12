@@ -445,6 +445,11 @@ const DetalheTicketJuridico = () => {
                 <XCircle className="h-4 w-4 mr-1" /> Cancelar
               </Button>
             )}
+            {profile?.is_admin && (
+              <Button variant="destructive" size="sm" onClick={() => setDeleteFilesDialog(true)} disabled={!hasActiveFiles}>
+                <Trash2 className="h-4 w-4 mr-1" /> Excluir arquivos
+              </Button>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
