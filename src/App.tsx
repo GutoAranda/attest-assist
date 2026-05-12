@@ -13,6 +13,7 @@ import TodasSolicitacoes from "@/pages/TodasSolicitacoes";
 import DetalheTicketJuridico from "@/pages/DetalheTicketJuridico";
 import Rascunhos from "@/pages/Rascunhos";
 import MinhasSolicitacoes from "@/pages/MinhasSolicitacoes";
+import DashboardAtendente from "@/pages/DashboardAtendente";
 import DetalheTicketAtendente from "@/pages/DetalheTicketAtendente";
 import Notificacoes from "@/pages/Notificacoes";
 import Admin from "@/pages/Admin";
@@ -56,6 +57,7 @@ const App = () => (
               <Route path="/solicitacoes/:id" element={<ProtectedRoute roles={['juridico']}><DetalheTicketJuridico /></ProtectedRoute>} />
               <Route path="/rascunhos" element={<ProtectedRoute roles={['juridico']}><Rascunhos /></ProtectedRoute>} />
               <Route path="/minhas-solicitacoes" element={<ProtectedRoute roles={['atendente']}><MinhasSolicitacoes /></ProtectedRoute>} />
+              <Route path="/dashboard-atendente" element={<ProtectedRoute roles={['atendente']}><DashboardAtendente /></ProtectedRoute>} />
               <Route path="/minhas-solicitacoes/:id" element={<ProtectedRoute roles={['atendente']}><DetalheTicketAtendente /></ProtectedRoute>} />
               <Route path="/notificacoes" element={<ProtectedRoute><Notificacoes /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute roles={['juridico']}><Admin /></ProtectedRoute>} />
