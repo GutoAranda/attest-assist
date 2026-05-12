@@ -107,7 +107,12 @@ const DetalheTicketJuridico = () => {
     },
   });
 
-  // Realtime typing indicator
+  const { data: activeAreas = [] } = useQuery({
+    queryKey: ['active-areas'],
+    queryFn: async () => (await supabase.from('areas').select('id, name').eq('active', true).order('name')).data || [],
+  });
+
+
   useEffect(() => {
     if (!id || !profile) return;
     const channel = supabase.channel(`typing-${id}`);
