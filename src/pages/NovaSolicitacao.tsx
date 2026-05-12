@@ -274,8 +274,13 @@ const NovaSolicitacao = () => {
         // CREATE MODE: generate ticket and UUID
         let ticketId: string | null = null;
         if (!asDraft) {
-          const { data: tid } = await supabase.rpc('generate_ticket_id');
-          ticketId = tid as string;
+          const { data: tid, error: tidErr } = await supabase.rpc('generate_operation_ticket_id', { op_id: operationId });
+          if (tidErr) {
+            const { data: fallback } = await supabase.rpc('generate_ticket_id');
+            ticketId = fallback as string;
+          } else {
+            ticketId = tid as string;
+          }
         }
         const status = asDraft ? 'rascunho' : 'aberto';
         const newId = crypto.randomUUID();
