@@ -11,7 +11,7 @@ import { Search, ChevronUp, ChevronDown } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+
 import { useIsMobile } from '@/hooks/use-mobile';
 
 type SortCol = 'ticket_id' | 'status' | 'operation' | 'process_number' | 'employee_name' | 'employee_registration' | 'deadline' | 'progress';
