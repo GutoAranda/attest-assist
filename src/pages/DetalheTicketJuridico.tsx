@@ -499,7 +499,11 @@ const DetalheTicketJuridico = () => {
                 <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm flex-1 truncate">{a.file_name}</span>
                 <span className="text-xs text-muted-foreground">{(a.profiles as any)?.name} • {new Date(a.uploaded_at).toLocaleDateString('pt-BR')}</span>
-                <AttachmentActions fileUrl={a.file_url} fileName={a.file_name} />
+                {a.deleted_at ? (
+                  <span className="text-xs italic text-danger">Arquivo removido em {new Date(a.deleted_at).toLocaleDateString('pt-BR')}</span>
+                ) : a.file_url ? (
+                  <AttachmentActions fileUrl={a.file_url} fileName={a.file_name} />
+                ) : null}
               </div>
             ))}
           </div>
