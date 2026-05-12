@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, DocStatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2, PackageOpen, History } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2, PackageOpen, History, Trash2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { openStorageFile } from '@/lib/storage';
