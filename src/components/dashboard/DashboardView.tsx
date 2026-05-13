@@ -357,7 +357,7 @@ export const DashboardView = ({ mode, scope, profileId }: Props) => {
     const resumo = [
       { Métrica: 'Total de solicitações', Valor: filteredSols.length },
       { Métrica: 'Concluídas', Valor: concluded.length },
-      { Métrica: 'Tempo médio (dias)', Valor: avgDays },
+      { Métrica: 'Tempo médio de atendimento (dias)', Valor: avgDays },
       { Métrica: 'Tickets urgentes', Valor: urgentList.length },
     ];
     const wb = XLSX.utils.book_new();
