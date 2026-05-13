@@ -407,7 +407,7 @@ export const DashboardView = ({ mode, scope, profileId }: Props) => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <Card className="p-4 text-center"><p className="text-3xl font-bold text-primary">{filteredSols.length}</p><p className="text-xs text-muted-foreground">Solicitações</p></Card>
             <Card className="p-4 text-center"><p className="text-3xl font-bold text-success">{concluded.length}</p><p className="text-xs text-muted-foreground">Concluídas</p></Card>
-            <Card className="p-4 text-center"><p className="text-3xl font-bold text-primary">{avgDays}</p><p className="text-xs text-muted-foreground">Tempo médio (dias)</p></Card>
+            <Card className="p-4 text-center"><p className="text-3xl font-bold text-primary">{avgDays}</p><p className="text-xs text-muted-foreground">Tempo médio de atendimento (dias)</p></Card>
             <Card className="p-4 text-center"><p className="text-3xl font-bold text-danger">{urgentList.length}</p><p className="text-xs text-muted-foreground">Urgentes</p></Card>
           </div>
 
