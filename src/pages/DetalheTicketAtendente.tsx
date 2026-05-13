@@ -383,7 +383,7 @@ const DetalheTicketAtendente = () => {
           const hasVersions = versions.length > 1 || (versions.length > 0 && doc.revision_reason);
 
           return (
-            <div key={doc.id} className="bg-accent rounded-lg p-4 md:p-5 mb-4 border">
+            <div key={doc.id} className="bg-card rounded-lg p-4 md:p-5 mb-4 border border-border-strong">
               <h3 className="font-semibold text-foreground mb-3">{doc.document_name}</h3>
 
               {doc.revision_reason && (doc.status === 'revisao_solicitada' || currentStatus === 'revisao_solicitada') && (

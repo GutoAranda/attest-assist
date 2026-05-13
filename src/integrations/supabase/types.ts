@@ -185,6 +185,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          is_internal: boolean
           message: string
           solicitation_id: string
           user_id: string
@@ -192,6 +193,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          is_internal?: boolean
           message: string
           solicitation_id: string
           user_id: string
@@ -199,6 +201,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          is_internal?: boolean
           message?: string
           solicitation_id?: string
           user_id?: string
@@ -339,6 +342,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          avatar_url: string | null
           created_at: string
           email: string
           id: string
@@ -349,6 +353,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          avatar_url?: string | null
           created_at?: string
           email: string
           id?: string
@@ -359,6 +364,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          avatar_url?: string | null
           created_at?: string
           email?: string
           id?: string
@@ -369,6 +375,42 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      solicitation_tags: {
+        Row: {
+          created_at: string
+          id: string
+          solicitation_id: string
+          tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          solicitation_id: string
+          tag_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          solicitation_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "solicitation_tags_solicitation_id_fkey"
+            columns: ["solicitation_id"]
+            isOneToOne: false
+            referencedRelation: "solicitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "solicitation_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       solicitations: {
         Row: {
@@ -381,6 +423,7 @@ export type Database = {
           id: string
           observations: string | null
           operation_id: string
+          priority: string | null
           process_number: string | null
           requester_id: string
           status: string
@@ -396,6 +439,7 @@ export type Database = {
           id?: string
           observations?: string | null
           operation_id: string
+          priority?: string | null
           process_number?: string | null
           requester_id: string
           status?: string
@@ -411,6 +455,7 @@ export type Database = {
           id?: string
           observations?: string | null
           operation_id?: string
+          priority?: string | null
           process_number?: string | null
           requester_id?: string
           status?: string
@@ -427,6 +472,63 @@ export type Database = {
           {
             foreignKeyName: "solicitations_requester_id_fkey"
             columns: ["requester_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tags: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      ticket_views: {
+        Row: {
+          id: string
+          last_viewed_at: string
+          solicitation_id: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          last_viewed_at?: string
+          solicitation_id: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          last_viewed_at?: string
+          solicitation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_views_solicitation_id_fkey"
+            columns: ["solicitation_id"]
+            isOneToOne: false
+            referencedRelation: "solicitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_views_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]

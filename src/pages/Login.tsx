@@ -56,7 +56,10 @@ const Login = () => {
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-md bg-card rounded-xl shadow-lg p-8">
         <div className="flex flex-col items-center mb-6">
-          <h1 className="text-2xl font-bold text-primary tracking-wider">LOTS</h1>
+          <div className="bg-[#2A2A2A] rounded-lg p-4 mb-4 inline-block">
+            <img src="/logo-lots.png" alt="LOTS Group" className="h-10 w-auto" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground tracking-wider">LOTS</h1>
           <p className="text-sm font-light text-muted-foreground">DocFlow</p>
           <p className="text-xs text-muted-foreground mt-1">Solicitações Jurídicas</p>
         </div>
