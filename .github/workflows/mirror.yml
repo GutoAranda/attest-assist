@@ -1,0 +1,24 @@
+name: Mirror to attest-assist-8e058715
+
+on:
+  push:
+    branches: ['**']
+  delete:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (mirror)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Push to mirror
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          git remote add mirror https://x-access-token:${MIRROR_TOKEN}@github.com/GutoAranda/attest-assist-8e058715.git
+          git push mirror --all --force
+          git push mirror --tags --force
