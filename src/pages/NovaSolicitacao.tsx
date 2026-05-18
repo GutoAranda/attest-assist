@@ -285,20 +285,22 @@ const NovaSolicitacao = () => {
         const status = asDraft ? 'rascunho' : 'aberto';
         const newId = crypto.randomUUID();
 
+        const solData = {
+          id: newId,
+          ticket_id: ticketId,
+          operation_id: operationId,
+          process_number: processNumber.trim() || null,
+          employee_name: employeeName.trim() || null,
+          employee_registration: employeeRegistration.trim() || null,
+          requester_id: profile.id,
+          observations: observations.trim() || null,
+          status,
+          deadline: deadline ? format(deadline, "yyyy-MM-dd") : null,
+        };
+
         const { error: solErr } = await supabase
           .from("solicitations")
-          .insert({
-            id: newId,
-            ticket_id: ticketId,
-            operation_id: operationId,
-            process_number: processNumber || null,
-            employee_name: employeeName || null,
-            employee_registration: employeeRegistration || null,
-            requester_id: profile.id,
-            observations: observations || null,
-            status,
-            deadline: deadline ? format(deadline, "yyyy-MM-dd") : null,
-          } as any);
+          .insert([solData]);
         if (solErr) throw solErr;
         solId = newId;
       }
