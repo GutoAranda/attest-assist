@@ -292,7 +292,8 @@ const NovaSolicitacao = () => {
         if (updErr) throw updErr;
 
         // Delete old documents THEN insert new ones
-        await supabase.from('documents').delete().eq('solicitation_id', editId);
+        const { error: delErr } = await supabase.from('documents').delete().eq('solicitation_id', editId);
+        if (delErr) throw delErr;
       } else {
         // CREATE MODE: generate ticket and UUID
         let ticketId: string | null = null;
