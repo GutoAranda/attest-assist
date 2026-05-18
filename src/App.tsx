@@ -24,9 +24,9 @@ const queryClient = new QueryClient();
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode; roles?: string[] }) => {
   const { profile, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Carregando...</div>;
-  if (!profile) return <Navigate to="/login" />;
+  if (!profile) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(profile.role)) {
-    return <Navigate to={profile.role === 'juridico' ? '/dashboard' : '/dashboard-atendente'} />;
+    return <Navigate to={profile.role === 'juridico' ? '/dashboard' : '/dashboard-atendente'} replace />;
   }
   return <>{children}</>;
 };
@@ -34,8 +34,8 @@ const ProtectedRoute = ({ children, roles }: { children: React.ReactNode; roles?
 const AuthRedirect = () => {
   const { profile, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Carregando...</div>;
-  if (!profile) return <Navigate to="/login" />;
-  return <Navigate to={profile.role === 'juridico' ? '/dashboard' : '/dashboard-atendente'} />;
+  if (!profile) return <Navigate to="/login" replace />;
+  return <Navigate to={profile.role === 'juridico' ? '/dashboard' : '/dashboard-atendente'} replace />;
 };
 
 const App = () => (
