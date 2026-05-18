@@ -292,8 +292,13 @@ const NovaSolicitacao = () => {
         if (updErr) throw updErr;
 
         // Delete old documents THEN insert new ones
-        const { error: delErr } = await supabase.from('documents').delete().eq('solicitation_id', editId);
+        const { data: deletedDocs, error: delErr } = await supabase
+          .from('documents')
+          .delete()
+          .eq('solicitation_id', editId)
+          .select();
         if (delErr) throw delErr;
+        console.log(`[DEBUG] Deleted ${deletedDocs?.length || 0} old documents for solicitation ${editId}`);
       } else {
         // CREATE MODE: generate ticket and UUID
         let ticketId: string | null = null;
@@ -332,14 +337,16 @@ const NovaSolicitacao = () => {
       // Insert documents
       const validDocs = documents.filter(d => d.name && d.area_id);
       if (validDocs.length > 0) {
-        await supabase.from('documents').insert(
+        const { data: insertedDocs, error: docInsertErr } = await supabase.from('documents').insert(
           validDocs.map(d => ({
             solicitation_id: solId!,
             document_name: d.name,
             responsible_area_id: d.area_id,
             status: 'pendente' as const,
           }))
-        );
+        ).select();
+        if (docInsertErr) throw docInsertErr;
+        console.log(`[DEBUG] Inserted ${insertedDocs?.length || 0} new documents for solicitation ${solId}`);
       }
 
       // Upload attachments
@@ -404,6 +411,7 @@ const NovaSolicitacao = () => {
                 solicitation_id: solId!,
               });
             }
+          }
         }
 
         // Send emails per area
@@ -420,7 +428,6 @@ const NovaSolicitacao = () => {
             employeeName, employeeRegistration, processNumber,
             deadline ? format(deadline, 'yyyy-MM-dd') : '', observations, areaDocs
           );
-        }
         }
       } else if (editId) {
         // Draft being saved

@@ -32,7 +32,11 @@ const Rascunhos = () => {
   });
 
   const deleteDraft = async (id: string) => {
-    await supabase.from('solicitations').delete().eq('id', id);
+    const { error } = await supabase.from('solicitations').delete().eq('id', id);
+    if (error) {
+      toast.error('Erro ao excluir rascunho: ' + error.message);
+      return;
+    }
     queryClient.invalidateQueries({ queryKey: ['drafts'] });
     setDeleteDialog(null);
     toast.success('Rascunho excluído');
