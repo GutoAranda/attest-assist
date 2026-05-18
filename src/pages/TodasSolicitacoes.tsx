@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { StatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Search, Download, ChevronUp, ChevronDown } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -17,9 +18,9 @@ const TodasSolicitacoes = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('todos');
-  const [operationFilter, setOperationFilter] = useState('todos');
-  const [requesterFilter, setRequesterFilter] = useState('todos');
+  const [operationFilters, setOperationFilters] = useState<string[]>([]);
+  const [requesterFilters, setRequesterFilters] = useState<string[]>([]);
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [sortCol, setSortCol] = useState<SortCol | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
@@ -44,22 +45,30 @@ const TodasSolicitacoes = () => {
   });
 
   const { data: result, isLoading } = useQuery({
-    queryKey: ['all-solicitations', search, statusFilter, operationFilter, requesterFilter, page, dateFrom, dateTo],
+    queryKey: ['all-solicitations', search, statusFilters, operationFilters, requesterFilters, page, dateFrom, dateTo],
     queryFn: async () => {
       let query = supabase
         .from('solicitations')
         .select('*, operations(name), profiles!solicitations_requester_id_fkey(name), documents(id, responsible_area_id, areas(name))', { count: 'exact' })
         .neq('status', 'rascunho');
 
-      if (statusFilter !== 'todos' && statusFilter !== 'vencidos') {
-        query = query.eq('status', statusFilter);
+      if (statusFilters.length > 0) {
+        if (statusFilters.includes('vencidos')) {
+          const today = new Date().toISOString().split('T')[0];
+          const statusList = statusFilters.filter(s => s !== 'vencidos');
+          const vencidosStatuses = ['aberto', 'em_atendimento', 'parcialmente_concluido'];
+          const combined = [...statusList, ...vencidosStatuses];
+          query = query.in('status', combined).lt('deadline', today);
+        } else {
+          query = query.in('status', statusFilters);
+        }
       }
-      if (statusFilter === 'vencidos') {
-        const today = new Date().toISOString().split('T')[0];
-        query = query.in('status', ['aberto', 'em_atendimento', 'parcialmente_concluido']).lt('deadline', today);
+      if (operationFilters.length > 0) {
+        query = query.in('operation_id', operationFilters);
       }
-      if (operationFilter !== 'todos') query = query.eq('operation_id', operationFilter);
-      if (requesterFilter !== 'todos') query = query.eq('requester_id', requesterFilter);
+      if (requesterFilters.length > 0) {
+        query = query.in('requester_id', requesterFilters);
+      }
       if (search) {
         query = query.or(`ticket_id.ilike.%${search}%,process_number.ilike.%${search}%,employee_name.ilike.%${search}%`);
       }
@@ -179,6 +188,7 @@ const TodasSolicitacoes = () => {
             <Input className="pl-10" placeholder="Buscar por ticket, processo ou funcionário..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
           </div>
         </div>
+<<<<<<< HEAD
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <Select value={operationFilter} onValueChange={(v) => { setOperationFilter(v); setPage(0); }}>
             <SelectTrigger><SelectValue placeholder="Operação" /></SelectTrigger>
@@ -208,6 +218,77 @@ const TodasSolicitacoes = () => {
           </Select>
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }} placeholder="De" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }} placeholder="Até" />
+=======
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Operação</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {operations.map((o: any) => (
+                <label key={o.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={operationFilters.includes(o.id)}
+                    onCheckedChange={(checked) => setOperationFilters(prev =>
+                      checked ? [...prev, o.id] : prev.filter(id => id !== o.id)
+                    )}
+                  />
+                  {o.name}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Solicitante</h3>
+            <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+              {profiles.map((p: any) => (
+                <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={requesterFilters.includes(p.id)}
+                    onCheckedChange={(checked) => setRequesterFilters(prev =>
+                      checked ? [...prev, p.id] : prev.filter(id => id !== p.id)
+                    )}
+                  />
+                  {p.name}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Status</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {['aberto', 'em_atendimento', 'parcialmente_concluido', 'concluido', 'cancelado', 'vencidos'].map((status) => (
+                <label key={status} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={statusFilters.includes(status)}
+                    onCheckedChange={(checked) => {
+                      setStatusFilters(prev =>
+                        checked ? [...prev, status] : prev.filter(s => s !== status)
+                      );
+                      setPage(0);
+                    }}
+                  />
+                  {status === 'em_atendimento' ? 'Em atendimento' : status === 'parcialmente_concluido' ? 'Parc. concluído' : status === 'concluido' ? 'Concluído' : status === 'cancelado' ? 'Cancelado' : status === 'aberto' ? 'Aberto' : 'Vencidos'}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {(operationFilters.length > 0 || requesterFilters.length > 0 || statusFilters.length > 0) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setOperationFilters([]);
+                setRequesterFilters([]);
+                setStatusFilters([]);
+                setPage(0);
+              }}
+            >
+              Limpar todos os filtros
+            </Button>
+          )}
+>>>>>>> 189bd96 (Fix document duplication in drafts and implement cumulative filters)
         </div>
       </Card>
 

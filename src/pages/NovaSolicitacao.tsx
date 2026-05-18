@@ -106,10 +106,11 @@ const NovaSolicitacao = () => {
 
   useEffect(() => {
     if (editId) {
+      let isMounted = true;
       setDocuments([]);
       (async () => {
         const { data: sol } = await supabase.from('solicitations').select('*').eq('id', editId).single();
-        if (sol) {
+        if (sol && isMounted) {
           setOperationId(sol.operation_id);
           setProcessNumber(sol.process_number || '');
           setEmployeeName(sol.employee_name || '');
@@ -118,12 +119,17 @@ const NovaSolicitacao = () => {
           if (sol.deadline) setDeadline(new Date(sol.deadline + 'T00:00:00'));
         }
         const { data: docs } = await supabase.from('documents').select('*').eq('solicitation_id', editId);
-        if (docs && docs.length > 0) {
-          setDocuments(docs.map(d => ({ name: d.document_name, area_id: d.responsible_area_id })));
-        } else {
-          setDocuments([{ name: '', area_id: '' }]);
+        if (isMounted) {
+          if (docs && docs.length > 0) {
+            setDocuments(docs.map(d => ({ name: d.document_name, area_id: d.responsible_area_id })));
+          } else {
+            setDocuments([{ name: '', area_id: '' }]);
+          }
         }
       })();
+      return () => {
+        isMounted = false;
+      };
     }
   }, [editId]);
 
