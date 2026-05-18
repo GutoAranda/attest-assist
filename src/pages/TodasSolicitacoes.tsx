@@ -274,7 +274,15 @@ const TodasSolicitacoes = () => {
             </div>
           </div>
 
-          {(operationFilters.length > 0 || requesterFilters.length > 0 || statusFilters.length > 0) && (
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Período</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }} placeholder="De" />
+              <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }} placeholder="Até" />
+            </div>
+          </div>
+
+          {(operationFilters.length > 0 || requesterFilters.length > 0 || statusFilters.length > 0 || dateFrom || dateTo) && (
             <Button
               variant="outline"
               size="sm"
@@ -282,6 +290,8 @@ const TodasSolicitacoes = () => {
                 setOperationFilters([]);
                 setRequesterFilters([]);
                 setStatusFilters([]);
+                setDateFrom('');
+                setDateTo('');
                 setPage(0);
               }}
             >
