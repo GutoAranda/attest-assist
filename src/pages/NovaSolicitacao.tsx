@@ -204,15 +204,32 @@ const NovaSolicitacao = () => {
       let solId = editId;
 
       if (editId) {
-        // EDIT MODE: update existing, do NOT generate new ticket_id or change status
-        const { error: updErr } = await supabase.from('solicitations').update({
+        // EDIT MODE: update existing rascunho or existing solicitation
+        let updateData: any = {
           operation_id: operationId,
           process_number: processNumber || null,
           employee_name: employeeName || null,
           employee_registration: employeeRegistration || null,
           observations: observations || null,
           deadline: deadline ? format(deadline, 'yyyy-MM-dd') : null,
-        } as any).eq('id', editId);
+        };
+
+        // If sending a draft (changing from rascunho to aberto)
+        if (!asDraft) {
+          // Check if rascunho doesn't have ticket_id, generate one
+          const { data: currentSol } = await supabase.from('solicitations').select('ticket_id, status').eq('id', editId).single();
+
+          if (currentSol?.status === 'rascunho' && !currentSol?.ticket_id) {
+            // Generate ticket_id for the rascunho being sent
+            const { data: tid } = await supabase.rpc('generate_ticket_id');
+            updateData.ticket_id = tid as string;
+          }
+
+          // Change status from rascunho to aberto when sending
+          updateData.status = 'aberto';
+        }
+
+        const { error: updErr } = await supabase.from('solicitations').update(updateData as any).eq('id', editId);
         if (updErr) throw updErr;
 
         // Delete old documents THEN insert new ones
@@ -248,13 +265,13 @@ const NovaSolicitacao = () => {
       }
 
       // Insert documents
-      const validDocs = documents.filter(d => d.name);
+      const validDocs = documents.filter(d => d.name && d.area_id);
       if (validDocs.length > 0) {
         await supabase.from('documents').insert(
           validDocs.map(d => ({
             solicitation_id: solId!,
             document_name: d.name,
-            responsible_area_id: d.area_id || areas[0]?.id,
+            responsible_area_id: d.area_id,
             status: 'pendente' as const,
           }))
         );
@@ -281,17 +298,29 @@ const NovaSolicitacao = () => {
         }
       }
 
-      // Audit log and notifications (only for non-draft)
-      if (!editId && !asDraft) {
+      // Audit log and notifications
+      if (!asDraft) {
+        // For both new and existing (draft being sent)
         const { data: solData } = await supabase.from('solicitations').select('ticket_id').eq('id', solId!).single();
         const ticketId = solData?.ticket_id;
 
-        await supabase.from('audit_logs').insert({
-          solicitation_id: solId!,
-          user_id: profile.id,
-          action: 'Solicitação criada',
-          details: `Ticket ${ticketId} criado por ${profile.name}`,
-        });
+        if (!editId) {
+          // New solicitation
+          await supabase.from('audit_logs').insert({
+            solicitation_id: solId!,
+            user_id: profile.id,
+            action: 'Solicitação criada',
+            details: `Ticket ${ticketId} criado por ${profile.name}`,
+          });
+        } else {
+          // Draft being sent
+          await supabase.from('audit_logs').insert({
+            solicitation_id: solId!,
+            user_id: profile.id,
+            action: 'Rascunho enviado',
+            details: `Rascunho enviado como Ticket ${ticketId} por ${profile.name}`,
+          });
+        }
 
         for (const doc of validDocs) {
           const { data: assignments } = await supabase
@@ -313,22 +342,32 @@ const NovaSolicitacao = () => {
           }
         }
       } else if (editId) {
+        // Draft being saved
         await supabase.from('audit_logs').insert({
           solicitation_id: solId!,
           user_id: profile.id,
-          action: 'Solicitação atualizada',
-          details: `Solicitação editada por ${profile.name}`,
+          action: 'Rascunho atualizado',
+          details: `Rascunho atualizado por ${profile.name}`,
         });
       }
 
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({ queryKey: ['drafts'] });
+      queryClient.invalidateQueries({ queryKey: ['solicitations'] });
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
 
-      if (editId) {
-        toast.success('Solicitação atualizada!');
+      if (editId && !asDraft) {
+        // Draft was sent - redirect to new solicitation
+        toast.success('Solicitação enviada!');
         navigate(`/solicitacoes/${editId}`);
+      } else if (editId && asDraft) {
+        // Draft updated - stay on drafts
+        toast.success('Rascunho atualizado!');
+        navigate('/rascunhos');
       } else if (asDraft) {
+        // New draft created
         toast.success('Rascunho salvo!');
       } else {
+        // New solicitation created
         toast.success('Solicitação criada!');
         navigate(`/solicitacoes/${solId}`);
       }
@@ -429,7 +468,7 @@ const NovaSolicitacao = () => {
           areas={areas}
           onImport={(newDocs) => {
             setDocuments(prev => {
-              const filtered = prev.filter(d => d.name || d.area_id);
+              const filtered = prev.filter(d => d.name && d.area_id);
               return [...filtered, ...newDocs];
             });
           }}
