@@ -7,12 +7,64 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { StatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Search, Download, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, Download, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 
 type SortCol = 'ticket_id' | 'operation' | 'employee_name' | 'employee_registration' | 'requester' | 'status' | 'deadline';
+
+interface FilterDropdownProps {
+  label: string;
+  items: Array<{ id: string; name: string }>;
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}
+
+const FilterDropdown = ({ label, items, selectedIds, onChange }: FilterDropdownProps) => {
+  const toggle = (id: string) => {
+    onChange(selectedIds.includes(id)
+      ? selectedIds.filter(x => x !== id)
+      : [...selectedIds, id]
+    );
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" className="w-full justify-between">
+          <span className="truncate">
+            {label}
+            {selectedIds.length > 0 && <span className="ml-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">{selectedIds.length}</span>}
+          </span>
+          <ChevronDown className="h-4 w-4 opacity-50 ml-2 shrink-0" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="max-h-72 overflow-y-auto w-56">
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {items.map(item => (
+          <DropdownMenuCheckboxItem
+            key={item.id}
+            checked={selectedIds.includes(item.id)}
+            onCheckedChange={() => toggle(item.id)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            {item.name}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
 
 const TodasSolicitacoes = () => {
   const navigate = useNavigate();
@@ -188,103 +240,115 @@ const TodasSolicitacoes = () => {
             <Input className="pl-10" placeholder="Buscar por ticket, processo ou funcionário..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
           </div>
         </div>
-<<<<<<< HEAD
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <Select value={operationFilter} onValueChange={(v) => { setOperationFilter(v); setPage(0); }}>
-            <SelectTrigger><SelectValue placeholder="Operação" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todas operações</SelectItem>
-              {operations.map((o: any) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={requesterFilter} onValueChange={(v) => { setRequesterFilter(v); setPage(0); }}>
-            <SelectTrigger><SelectValue placeholder="Solicitante" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos solicitantes</SelectItem>
-              {profiles.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos status</SelectItem>
-              <SelectItem value="aberto">Aberto</SelectItem>
-              <SelectItem value="em_atendimento">Em atendimento</SelectItem>
-              <SelectItem value="parcialmente_concluido">Parc. concluído</SelectItem>
-              <SelectItem value="concluido">Concluído</SelectItem>
-              <SelectItem value="cancelado">Cancelado</SelectItem>
-              <SelectItem value="vencidos">Vencidos</SelectItem>
-            </SelectContent>
-          </Select>
+
+        {/* Dropdowns Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+          <FilterDropdown
+            label="Operação"
+            items={operations}
+            selectedIds={operationFilters}
+            onChange={(ids) => { setOperationFilters(ids); setPage(0); }}
+          />
+          <FilterDropdown
+            label="Solicitante"
+            items={profiles}
+            selectedIds={requesterFilters}
+            onChange={(ids) => { setRequesterFilters(ids); setPage(0); }}
+          />
+          <FilterDropdown
+            label="Status"
+            items={[
+              { id: 'aberto', name: 'Aberto' },
+              { id: 'em_atendimento', name: 'Em atendimento' },
+              { id: 'parcialmente_concluido', name: 'Parc. concluído' },
+              { id: 'concluido', name: 'Concluído' },
+              { id: 'cancelado', name: 'Cancelado' },
+              { id: 'vencidos', name: 'Vencidos' },
+            ]}
+            selectedIds={statusFilters}
+            onChange={(ids) => { setStatusFilters(ids); setPage(0); }}
+          />
+        </div>
+
+        {/* Date Range */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }} placeholder="De" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }} placeholder="Até" />
-=======
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Operação</h3>
-            <div className="grid grid-cols-2 gap-2">
-              {operations.map((o: any) => (
-                <label key={o.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={operationFilters.includes(o.id)}
-                    onCheckedChange={(checked) => setOperationFilters(prev =>
-                      checked ? [...prev, o.id] : prev.filter(id => id !== o.id)
-                    )}
+        </div>
+
+        {/* Active Filters Chips */}
+        {(operationFilters.length > 0 || requesterFilters.length > 0 || statusFilters.length > 0 || dateFrom || dateTo) && (
+          <div className="flex flex-wrap gap-2 p-4 bg-muted rounded-lg mb-4">
+            {operationFilters.map(id => {
+              const op = operations.find(o => o.id === id);
+              return op ? (
+                <div
+                  key={`op-${id}`}
+                  className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm"
+                >
+                  {op.name}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:opacity-70"
+                    onClick={() => setOperationFilters(prev => prev.filter(x => x !== id))}
                   />
-                  {o.name}
-                </label>
-              ))}
-            </div>
-          </div>
+                </div>
+              ) : null;
+            })}
 
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Solicitante</h3>
-            <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
-              {profiles.map((p: any) => (
-                <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={requesterFilters.includes(p.id)}
-                    onCheckedChange={(checked) => setRequesterFilters(prev =>
-                      checked ? [...prev, p.id] : prev.filter(id => id !== p.id)
-                    )}
+            {requesterFilters.map(id => {
+              const profile = profiles.find(p => p.id === id);
+              return profile ? (
+                <div
+                  key={`req-${id}`}
+                  className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm"
+                >
+                  {profile.name}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:opacity-70"
+                    onClick={() => setRequesterFilters(prev => prev.filter(x => x !== id))}
                   />
-                  {p.name}
-                </label>
-              ))}
-            </div>
-          </div>
+                </div>
+              ) : null;
+            })}
 
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Status</h3>
-            <div className="grid grid-cols-2 gap-2">
-              {['aberto', 'em_atendimento', 'parcialmente_concluido', 'concluido', 'cancelado', 'vencidos'].map((status) => (
-                <label key={status} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={statusFilters.includes(status)}
-                    onCheckedChange={(checked) => {
-                      setStatusFilters(prev =>
-                        checked ? [...prev, status] : prev.filter(s => s !== status)
-                      );
-                      setPage(0);
-                    }}
+            {statusFilters.map(status => {
+              const statusLabel = status === 'em_atendimento' ? 'Em atendimento' : status === 'parcialmente_concluido' ? 'Parc. concluído' : status.charAt(0).toUpperCase() + status.slice(1);
+              return (
+                <div
+                  key={`st-${status}`}
+                  className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm"
+                >
+                  {statusLabel}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:opacity-70"
+                    onClick={() => setStatusFilters(prev => prev.filter(s => s !== status))}
                   />
-                  {status === 'em_atendimento' ? 'Em atendimento' : status === 'parcialmente_concluido' ? 'Parc. concluído' : status === 'concluido' ? 'Concluído' : status === 'cancelado' ? 'Cancelado' : status === 'aberto' ? 'Aberto' : 'Vencidos'}
-                </label>
-              ))}
-            </div>
-          </div>
+                </div>
+              );
+            })}
 
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Período</h3>
-            <div className="grid grid-cols-2 gap-2">
-              <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }} placeholder="De" />
-              <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }} placeholder="Até" />
-            </div>
-          </div>
+            {dateFrom && (
+              <div className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm">
+                De: {new Date(dateFrom).toLocaleDateString('pt-BR')}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:opacity-70"
+                  onClick={() => setDateFrom('')}
+                />
+              </div>
+            )}
 
-          {(operationFilters.length > 0 || requesterFilters.length > 0 || statusFilters.length > 0 || dateFrom || dateTo) && (
+            {dateTo && (
+              <div className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm">
+                Até: {new Date(dateTo).toLocaleDateString('pt-BR')}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:opacity-70"
+                  onClick={() => setDateTo('')}
+                />
+              </div>
+            )}
+
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => {
                 setOperationFilters([]);
@@ -294,12 +358,12 @@ const TodasSolicitacoes = () => {
                 setDateTo('');
                 setPage(0);
               }}
+              className="text-xs"
             >
-              Limpar todos os filtros
+              Limpar tudo
             </Button>
-          )}
->>>>>>> 189bd96 (Fix document duplication in drafts and implement cumulative filters)
-        </div>
+          </div>
+        )}
       </Card>
 
       <Card className="overflow-hidden">
