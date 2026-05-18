@@ -82,7 +82,7 @@ const DetalheTicketAtendente = () => {
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', id],
     queryFn: async () => {
-      const { data } = await supabase.from('comments').select('*, profiles(name, role)').eq('solicitation_id', id).order('created_at');
+      const { data } = await supabase.from('comments').select('*, profiles(name, role)').eq('solicitation_id', id).eq('is_internal', false).order('created_at');
       return data || [];
     },
   });
@@ -208,7 +208,7 @@ const DetalheTicketAtendente = () => {
     if (!comment.trim() || !profile) return;
     setSendingComment(true);
     try {
-      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
+      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment, is_internal: false });
       await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
       if (solicitation?.requester_id && solicitation.requester_id !== profile.id) {
         await supabase.from('notifications').insert({ user_id: solicitation.requester_id, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
