@@ -11,6 +11,9 @@ import { StatusBadge, DocStatusBadge, getDeadlineInfo } from '@/components/Statu
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2, PackageOpen, History, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { openStorageFile } from '@/lib/storage';
@@ -24,6 +27,7 @@ const DetalheTicketJuridico = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [comment, setComment] = useState('');
+  const [isInternal, setIsInternal] = useState(false);
   const [sendingComment, setSendingComment] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [cancelDialog, setCancelDialog] = useState(false);
@@ -152,24 +156,34 @@ const DetalheTicketJuridico = () => {
     if (!comment.trim() || !profile) return;
     setSendingComment(true);
     try {
-      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
-      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
-      const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
+      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment, is_internal: isInternal });
+      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: isInternal ? 'Nota interna adicionada' : 'Comentário adicionado', details: comment });
       if (solicitation) {
-        const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
-        const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
-        for (const userId of uniqueUsers) {
-          if (userId !== profile.id) {
-            await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
+        if (isInternal) {
+          // Internal note: notify only other jurídico users in-app; no emails to atendentes
+          const { data: juridicoProfiles } = await supabase.from('profiles').select('id').eq('role', 'juridico').eq('is_active', true);
+          const recipients = (juridicoProfiles || []).map((p: any) => p.id).filter((uid: string) => uid !== profile.id);
+          for (const userId of recipients) {
+            await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Nova nota interna em ${solicitation.ticket_id}`, solicitation_id: id! });
           }
-        }
-        // Send emails to attendees
-        const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
-        for (const email of emails) {
-          await sendCommentEmail(email, id!, solicitation.ticket_id!, comment, profile.name, 'atendente');
+        } else {
+          const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
+          const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
+          const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
+          for (const userId of uniqueUsers) {
+            if (userId !== profile.id) {
+              await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
+            }
+          }
+          // Send emails to attendees
+          const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
+          for (const email of emails) {
+            await sendCommentEmail(email, id!, solicitation.ticket_id!, comment, profile.name, 'atendente');
+          }
         }
       }
       setComment('');
+      setIsInternal(false);
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
     } finally {
@@ -272,8 +286,25 @@ const DetalheTicketJuridico = () => {
       attachments.forEach((a: any) => {
         allFiles.push({ name: `anexos/${a.file_name}`, url: a.file_url });
       });
+
+      const docNameById = new Map<string, string>(
+        documents.map((d: any) => [d.id, d.document_name as string])
+      );
+      const versionsByDoc = new Map<string, any[]>();
       docAttachments.forEach((a: any) => {
-        allFiles.push({ name: `versoes/${a.file_name}`, url: a.file_url });
+        if (!a.document_id) return;
+        const arr = versionsByDoc.get(a.document_id) ?? [];
+        arr.push(a);
+        versionsByDoc.set(a.document_id, arr);
+      });
+      versionsByDoc.forEach((versions, docId) => {
+        versions
+          .sort((x: any, y: any) => new Date(x.uploaded_at).getTime() - new Date(y.uploaded_at).getTime())
+          .forEach((v: any, idx: number) => {
+            const docName = sanitizeFileName(docNameById.get(docId) || v.file_name);
+            const ext = getFileExtFromUrl(v.file_url);
+            allFiles.push({ name: `versoes/${docName}_v${idx + 1}${ext}`, url: v.file_url });
+          });
       });
 
       for (const file of allFiles) {
@@ -598,9 +629,25 @@ const DetalheTicketJuridico = () => {
         <h2 className="text-lg font-semibold text-primary mb-4">Comentários</h2>
         <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
           {comments.map((c: any) => (
-            <div key={c.id} className={`p-3 rounded-lg ${(c.profiles as any)?.role === 'juridico' ? 'bg-info/5' : 'bg-accent'}`}>
-              <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span className="font-medium">{(c.profiles as any)?.name} ({(c.profiles as any)?.role === 'juridico' ? 'Jurídico' : 'Atendente'})</span>
+            <div
+              key={c.id}
+              className={`p-3 rounded-lg ${
+                c.is_internal
+                  ? 'bg-amber-50 border-l-4 border-amber-400'
+                  : (c.profiles as any)?.role === 'juridico'
+                  ? 'bg-info/5'
+                  : 'bg-accent'
+              }`}
+            >
+              <div className="flex justify-between text-xs text-muted-foreground mb-1 flex-wrap gap-1">
+                <span className="font-medium flex items-center gap-2">
+                  {(c.profiles as any)?.name} ({(c.profiles as any)?.role === 'juridico' ? 'Jurídico' : 'Atendente'})
+                  {c.is_internal && (
+                    <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] px-1.5 py-0">
+                      Nota interna
+                    </Badge>
+                  )}
+                </span>
                 <span>{new Date(c.created_at).toLocaleString('pt-BR')}</span>
               </div>
               <p className="text-sm">{c.message}</p>
@@ -612,11 +659,27 @@ const DetalheTicketJuridico = () => {
           <p className="text-xs text-muted-foreground mb-2 animate-pulse">{typingUser} está digitando...</p>
         )}
         {solicitation.status !== 'cancelado' && solicitation.status !== 'concluido' && (
-          <div className="flex gap-2">
-            <Textarea value={comment} onChange={(e) => { setComment(e.target.value); broadcastTyping(); }} rows={2} placeholder="Escreva um comentário..." className="flex-1" />
-            <Button size="sm" className="self-end" disabled={!comment.trim() || sendingComment} onClick={sendComment}>
-              {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-1" /> Enviar</>}
-            </Button>
+          <div className="space-y-2">
+            {profile?.role === 'juridico' && (
+              <div className="flex items-center gap-2">
+                <Switch id="nota-interna" checked={isInternal} onCheckedChange={setIsInternal} />
+                <Label htmlFor="nota-interna" className="text-sm cursor-pointer">
+                  Nota interna (visível apenas ao Jurídico)
+                </Label>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Textarea
+                value={comment}
+                onChange={(e) => { setComment(e.target.value); broadcastTyping(); }}
+                rows={2}
+                placeholder={isInternal ? 'Escreva uma nota interna...' : 'Escreva um comentário...'}
+                className={`flex-1 ${isInternal ? 'bg-amber-50/50 border-amber-300' : ''}`}
+              />
+              <Button size="sm" className="self-end" disabled={!comment.trim() || sendingComment} onClick={sendComment}>
+                {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-1" /> Enviar</>}
+              </Button>
+            </div>
           </div>
         )}
       </Card>
