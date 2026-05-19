@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -63,21 +63,23 @@ const DetalheTicketAtendente = () => {
     },
   });
 
-  const { data: attachments = [] } = useQuery({
-    queryKey: ['attachments', id],
+  // Single query for all attachments, split client-side (saves 1 round-trip)
+  const { data: allAttachments = [] } = useQuery({
+    queryKey: ['all-attachments', id],
     queryFn: async () => {
-      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).is('document_id', null).order('uploaded_at');
+      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).order('uploaded_at');
       return data || [];
     },
   });
 
-  const { data: docAttachments = [] } = useQuery({
-    queryKey: ['doc-attachments', id],
-    queryFn: async () => {
-      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).not('document_id', 'is', null).order('uploaded_at');
-      return data || [];
-    },
-  });
+  const attachments = useMemo(
+    () => allAttachments.filter((a: any) => !a.document_id),
+    [allAttachments]
+  );
+  const docAttachments = useMemo(
+    () => allAttachments.filter((a: any) => !!a.document_id),
+    [allAttachments]
+  );
 
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', id],

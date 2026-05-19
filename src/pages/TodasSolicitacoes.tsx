@@ -68,16 +68,45 @@ const FilterDropdown = ({ label, items, selectedIds, onChange }: FilterDropdownP
 
 const TodasSolicitacoes = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [search, setSearch] = useState('');
-  const [operationFilters, setOperationFilters] = useState<string[]>([]);
-  const [requesterFilters, setRequesterFilters] = useState<string[]>([]);
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
-  const [page, setPage] = useState(0);
-  const [sortCol, setSortCol] = useState<SortCol | null>(null);
-  const [sortAsc, setSortAsc] = useState(true);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // Filters persisted to URL params so they survive navigation away/back
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const getList = (key: string) => searchParams.get(key)?.split(',').filter(Boolean) || [];
+  const setList = (key: string, values: string[]) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (values.length > 0) next.set(key, values.join(','));
+      else next.delete(key);
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  };
+  const setParam = (key: string, value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set(key, value);
+      else next.delete(key);
+      return next;
+    }, { replace: true });
+  };
+
+  const search = searchParams.get('q') || '';
+  const operationFilters = getList('op');
+  const requesterFilters = getList('req');
+  const statusFilters = getList('st');
+  const page = parseInt(searchParams.get('page') || '0', 10);
+  const sortCol = (searchParams.get('sort') as SortCol) || null;
+  const sortAsc = searchParams.get('dir') !== 'desc';
+  const dateFrom = searchParams.get('from') || '';
+  const dateTo = searchParams.get('to') || '';
+
+  const setSearch = (v: string) => setParam('q', v);
+  const setOperationFilters = (v: string[]) => setList('op', v);
+  const setRequesterFilters = (v: string[]) => setList('req', v);
+  const setStatusFilters = (v: string[]) => setList('st', v);
+  const setPage = (v: number) => setParam('page', v > 0 ? String(v) : '');
+  const setDateFrom = (v: string) => setParam('from', v);
+  const setDateTo = (v: string) => setParam('to', v);
   const PAGE_SIZE = 10;
 
   const { data: operations = [] } = useQuery({
@@ -181,14 +210,24 @@ const TodasSolicitacoes = () => {
   const totalPages = Math.ceil(sortedItems.length / PAGE_SIZE);
 
   const toggleSort = (col: SortCol) => {
-    if (sortCol === col) {
-      if (sortAsc) { setSortAsc(false); }
-      else { setSortCol(null); setSortAsc(true); }
-    } else {
-      setSortCol(col);
-      setSortAsc(true);
-    }
-    setPage(0);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      const currentSort = next.get('sort');
+      const currentDir = next.get('dir');
+      if (currentSort === col) {
+        if (currentDir !== 'desc') {
+          next.set('dir', 'desc');
+        } else {
+          next.delete('sort');
+          next.delete('dir');
+        }
+      } else {
+        next.set('sort', col);
+        next.delete('dir');
+      }
+      next.delete('page');
+      return next;
+    }, { replace: true });
   };
 
   const SortHeader = ({ col, children }: { col: SortCol; children: React.ReactNode }) => (

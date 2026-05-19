@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -84,6 +84,7 @@ const NovaSolicitacao = () => {
   const [documents, setDocuments] = useState<DocumentRow[]>([{ name: '', area_id: '' }]);
   const [files, setFiles] = useState<File[]>([]);
   const [oldDocumentIds, setOldDocumentIds] = useState<string[]>([]);
+  const isSavingRef = useRef(false); // Synchronous guard against double-execution
   const [duplicateDialog, setDuplicateDialog] = useState<string | null>(null);
   const [employeeDuplicateDialog, setEmployeeDuplicateDialog] = useState<{ tickets: { ticket_id: string; process_number: string }[] } | null>(null);
   const [cancelDialog, setCancelDialog] = useState(false);
@@ -258,13 +259,22 @@ const NovaSolicitacao = () => {
   };
 
   const save = async (asDraft: boolean) => {
+    // SYNCHRONOUS GUARD: prevent double-execution even before setState propagates
+    if (isSavingRef.current) {
+      console.warn('[save] Already in progress, ignoring duplicate call');
+      return;
+    }
     if (!asDraft && !validate()) return;
     if (!profile) return;
 
+    isSavingRef.current = true;
     setSaving(true);
+    const saveStartTime = Date.now();
+    console.log(`[save] START asDraft=${asDraft} editId=${editId} docs=${documents.length}`);
+
     try {
       let solId = editId;
-      let existingDocNames = new Set<string>(); // Track existing docs for surgical operations
+      const validDocs = documents.filter(d => d.name && d.area_id);
 
       if (editId) {
         // EDIT MODE: update existing rascunho or existing solicitation
@@ -295,29 +305,16 @@ const NovaSolicitacao = () => {
         const { error: updErr } = await supabase.from('solicitations').update(updateData as any).eq('id', editId);
         if (updErr) throw updErr;
 
-        // Fetch existing docs for surgical delete/insert logic (only once)
-        const { data: existingDocsData } = await supabase
+        // ATOMIC REPLACE: Delete ALL old documents, then insert ALL new ones.
+        // This is the simplest, safest approach. Surgical delete/insert was causing
+        // race conditions and inconsistencies when documents were renamed.
+        const { data: deletedDocs, error: delErr } = await supabase
           .from('documents')
-          .select('id, document_name')
-          .eq('solicitation_id', editId);
-
-        existingDocNames = new Set(existingDocsData?.map(d => d.document_name) || []);
-
-        // Identify which old documents to delete (documents in DB but not in current list)
-        const validDocs = documents.filter(d => d.name && d.area_id);
-        const newDocNames = new Set(validDocs.map(d => d.name));
-        const docsToDelete = existingDocsData?.filter(d => !newDocNames.has(d.document_name)) || [];
-
-        // Delete only removed documents (by ID)
-        if (docsToDelete.length > 0) {
-          const idsToDelete = docsToDelete.map(d => d.id);
-          const { error: delErr } = await supabase
-            .from('documents')
-            .delete()
-            .in('id', idsToDelete);
-          if (delErr) throw delErr;
-          console.log(`[DEBUG] Deleted ${idsToDelete.length} removed documents for solicitation ${editId}`);
-        }
+          .delete()
+          .eq('solicitation_id', editId)
+          .select('id');
+        if (delErr) throw delErr;
+        console.log(`[save] Deleted ${deletedDocs?.length || 0} existing documents for solicitation ${editId}`);
       } else {
         // CREATE MODE: generate ticket and UUID
         let ticketId: string | null = null;
@@ -353,27 +350,18 @@ const NovaSolicitacao = () => {
         solId = newId;
       }
 
-      // Insert documents
-      const validDocs = documents.filter(d => d.name && d.area_id);
-
-      // In edit mode, only insert documents that are new (not already in DB)
-      const docsToInsert = editId
-        ? validDocs.filter(d => !existingDocNames.has(d.name))
-        : validDocs;
-
-      if (docsToInsert.length > 0) {
+      // Insert all valid documents (simple, atomic)
+      if (validDocs.length > 0) {
         const { data: insertedDocs, error: docInsertErr } = await supabase.from('documents').insert(
-          docsToInsert.map(d => ({
+          validDocs.map(d => ({
             solicitation_id: solId!,
             document_name: d.name,
             responsible_area_id: d.area_id,
             status: 'pendente' as const,
           }))
-        ).select();
+        ).select('id');
         if (docInsertErr) throw docInsertErr;
-        console.log(`[DEBUG] Inserted ${insertedDocs?.length || 0} new documents for solicitation ${solId}`);
-      } else if (validDocs.length > 0) {
-        console.log(`[DEBUG] No new documents to insert for solicitation ${solId}`);
+        console.log(`[save] Inserted ${insertedDocs?.length || 0} documents for solicitation ${solId}`);
       }
 
       // Upload attachments
@@ -488,7 +476,10 @@ const NovaSolicitacao = () => {
       }
     } catch (err: any) {
       toast.error('Erro ao salvar: ' + err.message);
+      console.error('[save] FAILED:', err);
     } finally {
+      console.log(`[save] DONE in ${Date.now() - saveStartTime}ms`);
+      isSavingRef.current = false;
       setSaving(false);
     }
   };
