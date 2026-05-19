@@ -89,6 +89,17 @@ const NovaSolicitacao = () => {
   const [employeeDuplicateDialog, setEmployeeDuplicateDialog] = useState<{ tickets: { ticket_id: string; process_number: string }[] } | null>(null);
   const [cancelDialog, setCancelDialog] = useState(false);
   const [saving, setSaving] = useState(false);
+  const autoSaveRef = useRef<NodeJS.Timeout>();
+
+  // Debounce auto-save: saves as draft automatically 3s after user stops editing
+  const triggerAutoSave = () => {
+    if (!editId) return; // Only auto-save when editing existing draft
+    clearTimeout(autoSaveRef.current);
+    autoSaveRef.current = setTimeout(async () => {
+      console.log('[auto-save] Triggered after 3s of inactivity');
+      await save(true); // Save as draft
+    }, 3000);
+  };
 
   const { data: operations = [] } = useQuery({
     queryKey: ['operations'],
@@ -241,6 +252,7 @@ const NovaSolicitacao = () => {
     const updated = [...documents];
     updated[idx] = { ...updated[idx], [field]: value };
     setDocuments(updated);
+    triggerAutoSave();
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -514,15 +526,15 @@ const NovaSolicitacao = () => {
           </div>
           <div>
             <Label>Número do processo *</Label>
-            <Input value={processNumber} onChange={(e) => setProcessNumber(e.target.value)} onBlur={checkDuplicate} placeholder="Ex.: 0001234-56.20.25.8.26.0100" />
+            <Input value={processNumber} onChange={(e) => { setProcessNumber(e.target.value); triggerAutoSave(); }} onBlur={checkDuplicate} placeholder="Ex.: 0001234-56.20.25.8.26.0100" />
           </div>
           <div>
             <Label>Funcionário *</Label>
-            <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} onBlur={checkEmployeeDuplicate} placeholder="Nome do colaborador" />
+            <Input value={employeeName} onChange={(e) => { setEmployeeName(e.target.value); triggerAutoSave(); }} onBlur={checkEmployeeDuplicate} placeholder="Nome do colaborador" />
           </div>
           <div>
             <Label>Matrícula</Label>
-            <Input value={employeeRegistration} onChange={(e) => setEmployeeRegistration(e.target.value)} placeholder="Matrícula (opcional)" />
+            <Input value={employeeRegistration} onChange={(e) => { setEmployeeRegistration(e.target.value); triggerAutoSave(); }} placeholder="Matrícula (opcional)" />
           </div>
           <div>
             <Label>Solicitante</Label>
@@ -538,7 +550,7 @@ const NovaSolicitacao = () => {
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
-                <Calendar mode="single" selected={deadline} onSelect={setDeadline} disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))} locale={ptBR} className="p-3 pointer-events-auto" />
+                <Calendar mode="single" selected={deadline} onSelect={(d) => { setDeadline(d); triggerAutoSave(); }} disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))} locale={ptBR} className="p-3 pointer-events-auto" />
               </PopoverContent>
             </Popover>
           </div>
@@ -546,7 +558,7 @@ const NovaSolicitacao = () => {
 
         <div className="mb-6">
           <Label>Observações</Label>
-          <Textarea value={observations} onChange={(e) => setObservations(e.target.value)} rows={3} placeholder="Observações gerais sobre a solicitação (opcional)" />
+          <Textarea value={observations} onChange={(e) => { setObservations(e.target.value); triggerAutoSave(); }} rows={3} placeholder="Observações gerais sobre a solicitação (opcional)" />
         </div>
 
         <h2 className="text-lg font-semibold text-primary mb-4 border-b pb-2">Anexos</h2>
