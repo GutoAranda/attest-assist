@@ -284,6 +284,9 @@ const NovaSolicitacao = () => {
     const saveStartTime = Date.now();
     console.log(`[save] START asDraft=${asDraft} editId=${editId} docs=${documents.length}`);
 
+    // OPTIMISTIC: Show "Saving..." immediately
+    const toastId = toast.loading(asDraft ? 'Salvando rascunho...' : 'Enviando solicitação...');
+
     try {
       let solId = editId;
       const validDocs = documents.filter(d => d.name && d.area_id);
@@ -470,6 +473,8 @@ const NovaSolicitacao = () => {
       queryClient.invalidateQueries({ queryKey: ['solicitations'] });
       queryClient.invalidateQueries({ queryKey: ['documents'] });
 
+      // OPTIMISTIC SUCCESS: Replace loading toast with appropriate message
+      toast.dismiss(toastId);
       if (editId && !asDraft) {
         // Draft was sent - redirect to new solicitation
         toast.success('Solicitação enviada!');
@@ -487,6 +492,7 @@ const NovaSolicitacao = () => {
         navigate(`/solicitacoes/${solId}`);
       }
     } catch (err: any) {
+      toast.dismiss(toastId);
       toast.error('Erro ao salvar: ' + err.message);
       console.error('[save] FAILED:', err);
     } finally {

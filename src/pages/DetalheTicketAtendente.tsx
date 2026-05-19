@@ -14,7 +14,11 @@ import { ChevronLeft, ChevronDown, Upload, Send, FileText, Download, Loader2, Hi
 import { toast } from 'sonner';
 import { buildStoragePublicUrl, openStorageFile } from '@/lib/storage';
 import { AttachmentActions } from '@/components/FilePreviewDialog';
+import { FileDropzone } from '@/components/FileDropzone';
+import { MAX_FILE_BYTES, validateFileSize } from '@/lib/files';
 import { sendCommentEmail, sendConclusionEmail } from '@/lib/email';
+import { TicketActions } from '@/components/TicketActions';
+import { TagsBar } from '@/components/TagsBar';
 
 const DetalheTicketAtendente = () => {
   const { id } = useParams();
@@ -152,14 +156,28 @@ const DetalheTicketAtendente = () => {
     }));
   };
 
-  const getDocVersions = (docId: string) => {
-    return docAttachments.filter((a: any) => a.document_id === docId).sort((a: any, b: any) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime());
-  };
+  // Pre-compute doc versions map (avoids O(N*M) filtering on every render)
+  const docVersionsMap = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    for (const att of docAttachments) {
+      const docId = (att as any).document_id;
+      if (!docId) continue;
+      if (!map[docId]) map[docId] = [];
+      map[docId].push(att);
+    }
+    for (const docId in map) {
+      map[docId].sort((a: any, b: any) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime());
+    }
+    return map;
+  }, [docAttachments]);
+
+  const getDocVersions = (docId: string) => docVersionsMap[docId] || [];
 
   const saveDocChanges = async (doc: any) => {
     const state = docStates[doc.id];
     if (!state) return;
 
+    const toastId = toast.loading('Atualizando documento...');
     try {
       let fileUrl = doc.file_url;
 
@@ -200,8 +218,10 @@ const DetalheTicketAtendente = () => {
       queryClient.invalidateQueries({ queryKey: ['doc-attachments', id] });
       queryClient.invalidateQueries({ queryKey: ['solicitation', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+      toast.dismiss(toastId);
       toast.success('Documento atualizado!');
     } catch (err: any) {
+      toast.dismiss(toastId);
       toast.error('Erro: ' + err.message);
     }
   };
@@ -209,6 +229,7 @@ const DetalheTicketAtendente = () => {
   const sendCommentFn = async () => {
     if (!comment.trim() || !profile) return;
     setSendingComment(true);
+    const toastId = toast.loading('Enviando comentário...');
     try {
       await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
       await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
@@ -217,14 +238,16 @@ const DetalheTicketAtendente = () => {
         // Email to requester
         const requesterEmail = (solicitation.profiles as any)?.email;
         if (requesterEmail) {
-          await sendCommentEmail(requesterEmail, id!, solicitation.ticket_id!, comment, profile.name, 'juridico');
+          await sendCommentEmail(requesterEmail, id!, solicitation.ticket_id!, comment, profile.name, 'atendente');
         }
       }
       setComment('');
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+      toast.dismiss(toastId);
       toast.success('Comentário enviado!');
     } catch (err: any) {
+      toast.dismiss(toastId);
       toast.error('Erro: ' + err.message);
     } finally {
       setSendingComment(false);
@@ -249,6 +272,7 @@ const DetalheTicketAtendente = () => {
     }
 
     setConcluding(true);
+    const toastId = toast.loading('Salvando conclusão...');
     try {
       for (const doc of sortedDocs) {
         if (docStates[doc.id]) await saveDocChanges(doc);
@@ -296,9 +320,11 @@ const DetalheTicketAtendente = () => {
       }
 
       queryClient.invalidateQueries();
+      toast.dismiss(toastId);
       toast.success('Sua parte foi concluída!');
       navigate('/minhas-solicitacoes');
     } catch (err: any) {
+      toast.dismiss(toastId);
       toast.error('Erro: ' + err.message);
     } finally {
       setConcluding(false);
@@ -320,13 +346,31 @@ const DetalheTicketAtendente = () => {
     <div className="max-w-4xl mx-auto">
       {/* Header */}
       <Card className="p-4 md:p-6 mb-6">
-        <Button variant="ghost" size="sm" className="mb-4" onClick={() => navigate('/minhas-solicitacoes')}>
-          <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
-        </Button>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/minhas-solicitacoes')}>
+            <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            <TicketActions
+              ticketId={solicitation.ticket_id || ''}
+              ticketUuid={id!}
+              employeeName={solicitation.employee_name}
+              operationName={(solicitation.operations as any)?.name}
+              deadline={solicitation.deadline}
+              observations={solicitation.observations}
+              status={solicitation.status}
+              documents={allDocuments}
+              comments={comments}
+              auditLogs={auditLogs}
+              hidePdf
+            />
+          </div>
+        </div>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           <h1 className="text-xl md:text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
           <StatusBadge status={solicitation.status as any} />
         </div>
+        <div className="mb-4"><TagsBar solicitationId={id!} /></div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div><p className="text-sm text-muted-foreground">Operação</p><p className="font-semibold">{(solicitation.operations as any)?.name}</p></div>
           <div><p className="text-sm text-muted-foreground">Nº Processo</p><p className="font-semibold text-sm">{solicitation.process_number || '—'}</p></div>
@@ -399,11 +443,7 @@ const DetalheTicketAtendente = () => {
                 <div>
                   <label className="text-sm text-muted-foreground mb-1 block">Status *</label>
                   <Select value={currentStatus} onValueChange={(v) => updateDocState(doc.id, 'status', v)}>
-                    <SelectTrigger className={
-                      currentStatus === 'enviado' ? 'bg-success/5 border-success/30 text-success' :
-                      currentStatus === 'inexistente' ? 'bg-danger/10 border-danger text-danger' :
-                      'bg-muted border-border text-muted-foreground'
-                    }>
+                    <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -417,15 +457,16 @@ const DetalheTicketAtendente = () => {
                 {currentStatus === 'enviado' && (
                   <div>
                     <label className="text-sm text-muted-foreground mb-1 block">Arquivo *</label>
-                    <label className="flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-success/5 bg-success/5">
-                      <Upload className="h-4 w-4 text-success" />
-                      <span className="text-sm truncate">
-                        {docStates[doc.id]?.file?.name || (doc.file_url ? 'Arquivo enviado ✓' : 'Selecionar arquivo')}
-                      </span>
-                      <input type="file" className="hidden" onChange={(e) => {
-                        if (e.target.files?.[0]) updateDocState(doc.id, 'file', e.target.files[0]);
-                      }} />
-                    </label>
+                    <FileDropzone
+                      compact
+                      label={docStates[doc.id]?.file?.name || (doc.file_url ? 'Arquivo enviado ✓ (selecione para substituir)' : 'Selecionar ou arraste o arquivo')}
+                      onFiles={(files) => {
+                        const f = files[0];
+                        if (!f) return;
+                        if (!validateFileSize(f, MAX_FILE_BYTES)) { toast.error(`${f.name} excede o limite de 250MB`); return; }
+                        updateDocState(doc.id, 'file', f);
+                      }}
+                    />
                     {doc.file_url && (
                       <div className="mt-1">
                         <AttachmentActions fileUrl={doc.file_url} fileName={doc.file_name || doc.document_name} compact />
