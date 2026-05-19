@@ -44,26 +44,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    let mounted = true;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        if (!mounted) return;
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          setTimeout(() => fetchProfile(session.user.id), 0);
+          await fetchProfile(session.user.id);
         } else {
           setProfile(null);
         }
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        await fetchProfile(session.user.id);
       }
-      setLoading(false);
+      if (mounted) setLoading(false);
     });
 
     const refreshHandler = () => {
@@ -72,6 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.addEventListener('profile-refresh', refreshHandler);
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
       window.removeEventListener('profile-refresh', refreshHandler);
     };
