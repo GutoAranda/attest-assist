@@ -16,7 +16,6 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { openStorageFile } from '@/lib/storage';
 import { AttachmentActions } from '@/components/FilePreviewDialog';
 import { sendRevisionEmail, sendCommentEmail, sendCancelEmail, sendConclusionEmail, sendReopenEmail, getAttendeesEmails } from '@/lib/email';
-import JSZip from 'jszip';
 import { TagsBar } from '@/components/TagsBar';
 import { TicketActions } from '@/components/TicketActions';
 
@@ -293,7 +292,10 @@ const DetalheTicketJuridico = () => {
 
   const handleDownloadZip = async () => {
     setZipping(true);
+    const toastId = toast.loading('Preparando ZIP...');
     try {
+      // LAZY LOAD: JSZip only when user clicks download
+      const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
       const ticketCode = solicitation?.ticket_id?.replace(/[#\/\\:*?"<>|]/g, '') || 'ticket';
       const root = zip.folder(ticketCode)!;
@@ -372,8 +374,10 @@ const DetalheTicketJuridico = () => {
       a.download = `${ticketCode}_documentos.zip`;
       a.click();
       URL.revokeObjectURL(url);
+      toast.dismiss(toastId);
       toast.success('ZIP baixado com sucesso!');
     } catch (err) {
+      toast.dismiss(toastId);
       console.error(err);
       toast.error('Erro ao gerar ZIP');
     } finally {
