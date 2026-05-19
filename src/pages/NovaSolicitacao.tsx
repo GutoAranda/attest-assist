@@ -83,6 +83,7 @@ const NovaSolicitacao = () => {
   const [observations, setObservations] = useState('');
   const [documents, setDocuments] = useState<DocumentRow[]>([{ name: '', area_id: '' }]);
   const [files, setFiles] = useState<File[]>([]);
+  const [oldDocumentIds, setOldDocumentIds] = useState<string[]>([]);
   const [duplicateDialog, setDuplicateDialog] = useState<string | null>(null);
   const [employeeDuplicateDialog, setEmployeeDuplicateDialog] = useState<{ tickets: { ticket_id: string; process_number: string }[] } | null>(null);
   const [cancelDialog, setCancelDialog] = useState(false);
@@ -122,8 +123,10 @@ const NovaSolicitacao = () => {
         if (isMounted) {
           if (docs && docs.length > 0) {
             setDocuments(docs.map(d => ({ name: d.document_name, area_id: d.responsible_area_id })));
+            setOldDocumentIds(docs.map(d => d.id));
           } else {
             setDocuments([{ name: '', area_id: '' }]);
+            setOldDocumentIds([]);
           }
         }
       })();
@@ -261,6 +264,7 @@ const NovaSolicitacao = () => {
     setSaving(true);
     try {
       let solId = editId;
+      let existingDocNames = new Set<string>(); // Track existing docs for surgical operations
 
       if (editId) {
         // EDIT MODE: update existing rascunho or existing solicitation
@@ -291,14 +295,29 @@ const NovaSolicitacao = () => {
         const { error: updErr } = await supabase.from('solicitations').update(updateData as any).eq('id', editId);
         if (updErr) throw updErr;
 
-        // Delete old documents THEN insert new ones
-        const { data: deletedDocs, error: delErr } = await supabase
+        // Fetch existing docs for surgical delete/insert logic (only once)
+        const { data: existingDocsData } = await supabase
           .from('documents')
-          .delete()
-          .eq('solicitation_id', editId)
-          .select();
-        if (delErr) throw delErr;
-        console.log(`[DEBUG] Deleted ${deletedDocs?.length || 0} old documents for solicitation ${editId}`);
+          .select('id, document_name')
+          .eq('solicitation_id', editId);
+
+        existingDocNames = new Set(existingDocsData?.map(d => d.document_name) || []);
+
+        // Identify which old documents to delete (documents in DB but not in current list)
+        const validDocs = documents.filter(d => d.name && d.area_id);
+        const newDocNames = new Set(validDocs.map(d => d.name));
+        const docsToDelete = existingDocsData?.filter(d => !newDocNames.has(d.document_name)) || [];
+
+        // Delete only removed documents (by ID)
+        if (docsToDelete.length > 0) {
+          const idsToDelete = docsToDelete.map(d => d.id);
+          const { error: delErr } = await supabase
+            .from('documents')
+            .delete()
+            .in('id', idsToDelete);
+          if (delErr) throw delErr;
+          console.log(`[DEBUG] Deleted ${idsToDelete.length} removed documents for solicitation ${editId}`);
+        }
       } else {
         // CREATE MODE: generate ticket and UUID
         let ticketId: string | null = null;
@@ -336,9 +355,15 @@ const NovaSolicitacao = () => {
 
       // Insert documents
       const validDocs = documents.filter(d => d.name && d.area_id);
-      if (validDocs.length > 0) {
+
+      // In edit mode, only insert documents that are new (not already in DB)
+      const docsToInsert = editId
+        ? validDocs.filter(d => !existingDocNames.has(d.name))
+        : validDocs;
+
+      if (docsToInsert.length > 0) {
         const { data: insertedDocs, error: docInsertErr } = await supabase.from('documents').insert(
-          validDocs.map(d => ({
+          docsToInsert.map(d => ({
             solicitation_id: solId!,
             document_name: d.name,
             responsible_area_id: d.area_id,
@@ -347,6 +372,8 @@ const NovaSolicitacao = () => {
         ).select();
         if (docInsertErr) throw docInsertErr;
         console.log(`[DEBUG] Inserted ${insertedDocs?.length || 0} new documents for solicitation ${solId}`);
+      } else if (validDocs.length > 0) {
+        console.log(`[DEBUG] No new documents to insert for solicitation ${solId}`);
       }
 
       // Upload attachments
