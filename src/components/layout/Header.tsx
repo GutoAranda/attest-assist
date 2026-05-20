@@ -116,7 +116,9 @@ const Header = ({ onToggleSidebar }: HeaderProps) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !profile) return;
-    if (!/\.(jpe?g|png)$/i.test(file.name)) {
+    // Valida tanto extensão quanto MIME type (extensão pode ser renomeada)
+    const allowedMime = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!/\.(jpe?g|png)$/i.test(file.name) || !allowedMime.includes(file.type)) {
       toast.error('Use JPG, JPEG ou PNG');
       return;
     }
@@ -134,11 +136,19 @@ const Header = ({ onToggleSidebar }: HeaderProps) => {
       const { error: updErr } = await supabase.from('profiles').update({ avatar_url: url } as any).eq('id', profile.id);
       if (updErr) throw updErr;
       toast.success('Foto atualizada!');
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
       // Force reload of profile
       window.dispatchEvent(new Event('profile-refresh'));
     } catch (err: any) {
-      toast.error('Erro ao enviar foto: ' + err.message);
+      // Map common Supabase errors a mensagens amigáveis (não expor internos)
+      const errMsg = err?.message || '';
+      const friendly = errMsg.includes('row-level security') || errMsg.includes('permission')
+        ? 'Sem permissão para atualizar a foto'
+        : errMsg.includes('size')
+        ? 'Arquivo muito grande'
+        : 'Não foi possível enviar a foto. Tente novamente.';
+      toast.error(friendly);
+      console.error('[avatar-upload]', err);
     } finally {
       setUploading(false);
     }

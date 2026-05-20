@@ -12,19 +12,20 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, profile } = useAuth();
+  const { signIn, profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (authLoading) return;
     if (profile) {
       if (!profile.is_active) {
         toast.error('Seu acesso foi desativado. Contate o administrador.');
         supabase.auth.signOut();
         return;
       }
-      navigate(profile.role === 'juridico' ? '/dashboard' : '/minhas-solicitacoes', { replace: true });
+      navigate(profile.role === 'juridico' ? '/dashboard' : '/dashboard-atendente', { replace: true });
     }
-  }, [profile, navigate]);
+  }, [profile, authLoading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

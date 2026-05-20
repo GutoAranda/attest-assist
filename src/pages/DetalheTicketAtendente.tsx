@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -14,7 +14,11 @@ import { ChevronLeft, ChevronDown, Upload, Send, FileText, Download, Loader2, Hi
 import { toast } from 'sonner';
 import { buildStoragePublicUrl, openStorageFile } from '@/lib/storage';
 import { AttachmentActions } from '@/components/FilePreviewDialog';
+import { FileDropzone } from '@/components/FileDropzone';
+import { MAX_FILE_BYTES, validateFileSize } from '@/lib/files';
 import { sendCommentEmail, sendConclusionEmail } from '@/lib/email';
+import { TicketActions } from '@/components/TicketActions';
+import { TagsBar } from '@/components/TagsBar';
 
 const DetalheTicketAtendente = () => {
   const { id } = useParams();
@@ -63,26 +67,28 @@ const DetalheTicketAtendente = () => {
     },
   });
 
-  const { data: attachments = [] } = useQuery({
-    queryKey: ['attachments', id],
+  // Single query for all attachments, split client-side (saves 1 round-trip)
+  const { data: allAttachments = [] } = useQuery({
+    queryKey: ['all-attachments', id],
     queryFn: async () => {
-      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).is('document_id', null).order('uploaded_at');
+      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).order('uploaded_at');
       return data || [];
     },
   });
 
-  const { data: docAttachments = [] } = useQuery({
-    queryKey: ['doc-attachments', id],
-    queryFn: async () => {
-      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).not('document_id', 'is', null).order('uploaded_at');
-      return data || [];
-    },
-  });
+  const attachments = useMemo(
+    () => allAttachments.filter((a: any) => !a.document_id),
+    [allAttachments]
+  );
+  const docAttachments = useMemo(
+    () => allAttachments.filter((a: any) => !!a.document_id),
+    [allAttachments]
+  );
 
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', id],
     queryFn: async () => {
-      const { data } = await supabase.from('comments').select('*, profiles(name, role)').eq('solicitation_id', id).eq('is_internal', false).order('created_at');
+      const { data } = await supabase.from('comments').select('*, profiles(name, role)').eq('solicitation_id', id).order('created_at');
       return data || [];
     },
   });
@@ -123,7 +129,11 @@ const DetalheTicketAtendente = () => {
       }
     }).subscribe();
     channelRef.current = channel;
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    };
   }, [id, profile]);
 
   const broadcastTyping = () => {
@@ -150,16 +160,44 @@ const DetalheTicketAtendente = () => {
     }));
   };
 
-  const getDocVersions = (docId: string) => {
-    return docAttachments.filter((a: any) => a.document_id === docId).sort((a: any, b: any) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime());
-  };
+  // Pre-compute doc versions map (avoids O(N*M) filtering on every render)
+  const docVersionsMap = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    for (const att of docAttachments) {
+      const docId = (att as any).document_id;
+      if (!docId) continue;
+      if (!map[docId]) map[docId] = [];
+      map[docId].push(att);
+    }
+    for (const docId in map) {
+      map[docId].sort((a: any, b: any) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime());
+    }
+    return map;
+  }, [docAttachments]);
+
+  const getDocVersions = (docId: string) => docVersionsMap[docId] || [];
 
   const saveDocChanges = async (doc: any) => {
     const state = docStates[doc.id];
     if (!state) return;
+    if (!profile || !id) throw new Error('Sessão inválida');
 
+    const toastId = toast.loading('Atualizando documento...');
     try {
-      let fileUrl = doc.file_url;
+      // BUG FIX #5: Verifica que documento pertence à solicitação atual (evita cross-ticket injection)
+      const { data: freshDoc, error: docErr } = await supabase
+        .from('documents')
+        .select('id, solicitation_id, responsible_area_id, file_url, revision_reason')
+        .eq('id', doc.id)
+        .single();
+      if (docErr || !freshDoc) {
+        throw new Error('Documento não encontrado');
+      }
+      if (freshDoc.solicitation_id !== id) {
+        throw new Error('Documento não pertence a esta solicitação');
+      }
+
+      let fileUrl = freshDoc.file_url;
 
       if (state.file) {
         const path = `${id}/${doc.id}/${Date.now()}_${state.file.name}`;
@@ -167,29 +205,37 @@ const DetalheTicketAtendente = () => {
         if (upErr) throw upErr;
         fileUrl = buildStoragePublicUrl('solicitations', path);
 
-        await supabase.from('attachments').insert({
-          solicitation_id: id!,
+        const { error: attErr } = await supabase.from('attachments').insert({
+          solicitation_id: id,
           document_id: doc.id,
           file_name: state.file.name,
           file_url: fileUrl,
-          uploaded_by: profile!.id,
+          uploaded_by: profile.id,
         });
+        if (attErr) throw attErr;
       }
 
-      await supabase.from('documents').update({
+      const { error: docUpdateErr } = await supabase.from('documents').update({
         status: state.status,
         observations: state.observations || null,
-        file_url: state.status === 'enviado' ? fileUrl : doc.file_url,
-        revision_reason: state.status !== 'revisao_solicitada' ? null : doc.revision_reason,
+        file_url: state.status === 'enviado' ? fileUrl : freshDoc.file_url,
+        revision_reason: state.status !== 'revisao_solicitada' ? null : freshDoc.revision_reason,
       }).eq('id', doc.id);
+      if (docUpdateErr) throw docUpdateErr;
 
-      if (solicitation?.status === 'aberto') {
+      // BUG FIX #4: Só muda status para em_atendimento se ainda está aberto (evita sobrescrever reabertura)
+      const { data: currentSol } = await supabase
+        .from('solicitations')
+        .select('status')
+        .eq('id', id)
+        .single();
+      if (currentSol?.status === 'aberto') {
         await supabase.from('solicitations').update({ status: 'em_atendimento' }).eq('id', id);
       }
 
       await supabase.from('audit_logs').insert({
-        solicitation_id: id!,
-        user_id: profile!.id,
+        solicitation_id: id,
+        user_id: profile.id,
         action: `Documento atualizado`,
         details: `${doc.document_name}: status alterado para ${state.status}`,
       });
@@ -198,31 +244,37 @@ const DetalheTicketAtendente = () => {
       queryClient.invalidateQueries({ queryKey: ['doc-attachments', id] });
       queryClient.invalidateQueries({ queryKey: ['solicitation', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+      toast.dismiss(toastId);
       toast.success('Documento atualizado!');
     } catch (err: any) {
+      toast.dismiss(toastId);
       toast.error('Erro: ' + err.message);
+      throw err; // Re-throw para handleConclude saber que falhou
     }
   };
 
   const sendCommentFn = async () => {
     if (!comment.trim() || !profile) return;
     setSendingComment(true);
+    const toastId = toast.loading('Enviando comentário...');
     try {
-      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment, is_internal: false });
+      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
       await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
       if (solicitation?.requester_id && solicitation.requester_id !== profile.id) {
         await supabase.from('notifications').insert({ user_id: solicitation.requester_id, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
         // Email to requester
         const requesterEmail = (solicitation.profiles as any)?.email;
         if (requesterEmail) {
-          await sendCommentEmail(requesterEmail, id!, solicitation.ticket_id!, comment, profile.name, 'juridico');
+          await sendCommentEmail(requesterEmail, id!, solicitation.ticket_id!, comment, profile.name, 'atendente');
         }
       }
       setComment('');
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+      toast.dismiss(toastId);
       toast.success('Comentário enviado!');
     } catch (err: any) {
+      toast.dismiss(toastId);
       toast.error('Erro: ' + err.message);
     } finally {
       setSendingComment(false);
@@ -230,6 +282,9 @@ const DetalheTicketAtendente = () => {
   };
 
   const handleConclude = async () => {
+    if (!profile || !id) return;
+
+    // Validação inicial dos documentos
     for (const doc of sortedDocs) {
       const state = docStates[doc.id] || { status: doc.status, observations: doc.observations };
       if (state.status === 'enviado' && !doc.file_url && !docStates[doc.id]?.file) {
@@ -247,56 +302,123 @@ const DetalheTicketAtendente = () => {
     }
 
     setConcluding(true);
+    const toastId = toast.loading('Salvando conclusão...');
     try {
-      for (const doc of sortedDocs) {
-        if (docStates[doc.id]) await saveDocChanges(doc);
+      // BUG FIX #4: Re-fetch status atual antes de operações (evita race com reabertura)
+      const { data: freshSol, error: freshSolErr } = await supabase
+        .from('solicitations')
+        .select('id, status, operation_id, requester_id, ticket_id')
+        .eq('id', id)
+        .single();
+      if (freshSolErr || !freshSol) throw new Error('Não foi possível verificar o estado atual da solicitação');
+      if (freshSol.status === 'cancelado' || freshSol.status === 'concluido') {
+        throw new Error(`Solicitação não pode ser concluída (status atual: ${freshSol.status})`);
       }
 
-      const myAreaIds = [...new Set(myAssignments.map(a => a.area_id))];
-      for (const areaId of myAreaIds) {
-        await supabase.from('area_conclusions').upsert({
-          solicitation_id: id!,
+      // BUG FIX #1: Re-validar permissões com dados frescos (evita race se admin removeu acesso)
+      const { data: freshAssignments, error: freshAssignErr } = await supabase
+        .from('user_group_assignments')
+        .select('area_id, operation_id')
+        .eq('user_id', profile.id)
+        .eq('operation_id', freshSol.operation_id);
+      if (freshAssignErr) throw freshAssignErr;
+      const freshAreaIds = [...new Set((freshAssignments || []).map((a: any) => a.area_id))];
+      if (freshAreaIds.length === 0) {
+        throw new Error('Você não tem mais permissão para concluir áreas desta solicitação');
+      }
+
+      // Verifica que só estamos tentando concluir documentos das áreas que ainda temos acesso
+      const allowedDocs = sortedDocs.filter((d: any) => freshAreaIds.includes(d.responsible_area_id));
+      if (allowedDocs.length === 0) {
+        throw new Error('Você não tem acesso aos documentos desta solicitação');
+      }
+
+      // BUG FIX #3: Salva documentos com tracking de progresso (para diagnóstico em caso de falha)
+      const savedDocs: string[] = [];
+      try {
+        for (const doc of allowedDocs) {
+          if (docStates[doc.id]) {
+            await saveDocChanges(doc);
+            savedDocs.push(doc.id);
+          }
+        }
+      } catch (saveErr: any) {
+        throw new Error(
+          `Erro ao salvar documentos (${savedDocs.length}/${allowedDocs.length} salvos). ` +
+          `Tente novamente. Detalhe: ${saveErr.message}`
+        );
+      }
+
+      // BUG FIX #1+#2: Upsert apenas áreas autorizadas (server RLS valida também)
+      for (const areaId of freshAreaIds) {
+        const { error: upsertErr } = await supabase.from('area_conclusions').upsert({
+          solicitation_id: id,
           area_id: areaId,
-          concluded_by: profile!.id,
+          concluded_by: profile.id,
         }, { onConflict: 'solicitation_id,area_id' });
-      }
-
-      const involvedAreaIds = [...new Set(allDocuments.map((d: any) => d.responsible_area_id))];
-      const { data: conclusions } = await supabase.from('area_conclusions').select('area_id').eq('solicitation_id', id!);
-      const concludedAreaIds = new Set((conclusions || []).map((c: any) => c.area_id));
-      const allConcluded = involvedAreaIds.every(a => concludedAreaIds.has(a));
-
-      const newStatus = allConcluded ? 'concluido' : 'parcialmente_concluido';
-      await supabase.from('solicitations').update({
-        status: newStatus,
-        ...(allConcluded ? { concluded_at: new Date().toISOString() } : {}),
-      }).eq('id', id);
-
-      await supabase.from('audit_logs').insert({
-        solicitation_id: id!,
-        user_id: profile!.id,
-        action: allConcluded ? 'Solicitação concluída' : 'Área concluída parcialmente',
-        details: `Concluído por ${profile!.name}`,
-      });
-
-      if (allConcluded && solicitation?.requester_id) {
-        await supabase.from('notifications').insert({
-          user_id: solicitation.requester_id,
-          type: 'conclusao',
-          message: `Solicitação ${solicitation.ticket_id} foi concluída`,
-          solicitation_id: id!,
-        });
-        // Send conclusion email
-        const requesterEmail = (solicitation.profiles as any)?.email;
-        if (requesterEmail) {
-          await sendConclusionEmail(requesterEmail, id!, solicitation.ticket_id!, allDocuments.map((d: any) => ({ document_name: d.document_name, status: d.status })));
+        if (upsertErr) {
+          throw new Error(`Erro ao marcar área como concluída: ${upsertErr.message}`);
         }
       }
 
-      queryClient.invalidateQueries();
+      // Verifica se todas as áreas envolvidas concluíram
+      const involvedAreaIds = [...new Set(allDocuments.map((d: any) => d.responsible_area_id))];
+      const { data: conclusions, error: concErr } = await supabase
+        .from('area_conclusions')
+        .select('area_id')
+        .eq('solicitation_id', id);
+      if (concErr) throw concErr;
+      const concludedAreaIds = new Set((conclusions || []).map((c: any) => c.area_id));
+      const allConcluded = involvedAreaIds.every(a => concludedAreaIds.has(a));
+
+      // BUG FIX #4: Re-checa que status não mudou enquanto operação rodava
+      const { data: currentSol } = await supabase
+        .from('solicitations')
+        .select('status')
+        .eq('id', id)
+        .single();
+      if (currentSol?.status === 'cancelado' || currentSol?.status === 'concluido') {
+        throw new Error(`Estado da solicitação mudou durante operação (${currentSol.status}). Atualize a página.`);
+      }
+
+      const newStatus = allConcluded ? 'concluido' : 'parcialmente_concluido';
+      const { error: solUpdateErr } = await supabase.from('solicitations').update({
+        status: newStatus,
+        ...(allConcluded ? { concluded_at: new Date().toISOString() } : {}),
+      }).eq('id', id);
+      if (solUpdateErr) throw solUpdateErr;
+
+      await supabase.from('audit_logs').insert({
+        solicitation_id: id,
+        user_id: profile.id,
+        action: allConcluded ? 'Solicitação concluída' : 'Área concluída parcialmente',
+        details: `Concluído por ${profile.name}`,
+      });
+
+      if (allConcluded && freshSol.requester_id) {
+        await supabase.from('notifications').insert({
+          user_id: freshSol.requester_id,
+          type: 'conclusao',
+          message: `Solicitação ${freshSol.ticket_id} foi concluída`,
+          solicitation_id: id,
+        });
+        const requesterEmail = (solicitation?.profiles as any)?.email;
+        if (requesterEmail) {
+          await sendConclusionEmail(requesterEmail, id, freshSol.ticket_id || '', allDocuments.map((d: any) => ({ document_name: d.document_name, status: d.status })));
+        }
+      }
+
+      // Invalidate only queries related to this ticket (avoid global cache wipe)
+      queryClient.invalidateQueries({ queryKey: ['solicitation', id] });
+      queryClient.invalidateQueries({ queryKey: ['documents', id] });
+      queryClient.invalidateQueries({ queryKey: ['area-conclusions', id] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+      queryClient.invalidateQueries({ queryKey: ['solicitations'] });
+      toast.dismiss(toastId);
       toast.success('Sua parte foi concluída!');
       navigate('/minhas-solicitacoes');
     } catch (err: any) {
+      toast.dismiss(toastId);
       toast.error('Erro: ' + err.message);
     } finally {
       setConcluding(false);
@@ -318,13 +440,31 @@ const DetalheTicketAtendente = () => {
     <div className="max-w-4xl mx-auto">
       {/* Header */}
       <Card className="p-4 md:p-6 mb-6">
-        <Button variant="ghost" size="sm" className="mb-4" onClick={() => navigate('/minhas-solicitacoes')}>
-          <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
-        </Button>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/minhas-solicitacoes')}>
+            <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            <TicketActions
+              ticketId={solicitation.ticket_id || ''}
+              ticketUuid={id!}
+              employeeName={solicitation.employee_name}
+              operationName={(solicitation.operations as any)?.name}
+              deadline={solicitation.deadline}
+              observations={solicitation.observations}
+              status={solicitation.status}
+              documents={allDocuments}
+              comments={comments}
+              auditLogs={auditLogs}
+              hidePdf
+            />
+          </div>
+        </div>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           <h1 className="text-xl md:text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
           <StatusBadge status={solicitation.status as any} />
         </div>
+        <div className="mb-4"><TagsBar solicitationId={id!} /></div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div><p className="text-sm text-muted-foreground">Operação</p><p className="font-semibold">{(solicitation.operations as any)?.name}</p></div>
           <div><p className="text-sm text-muted-foreground">Nº Processo</p><p className="font-semibold text-sm">{solicitation.process_number || '—'}</p></div>
@@ -397,11 +537,7 @@ const DetalheTicketAtendente = () => {
                 <div>
                   <label className="text-sm text-muted-foreground mb-1 block">Status *</label>
                   <Select value={currentStatus} onValueChange={(v) => updateDocState(doc.id, 'status', v)}>
-                    <SelectTrigger className={
-                      currentStatus === 'enviado' ? 'bg-success/5 border-success/30 text-success' :
-                      currentStatus === 'inexistente' ? 'bg-danger/10 border-danger text-danger' :
-                      'bg-muted border-border text-muted-foreground'
-                    }>
+                    <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -415,15 +551,16 @@ const DetalheTicketAtendente = () => {
                 {currentStatus === 'enviado' && (
                   <div>
                     <label className="text-sm text-muted-foreground mb-1 block">Arquivo *</label>
-                    <label className="flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-success/5 bg-success/5">
-                      <Upload className="h-4 w-4 text-success" />
-                      <span className="text-sm truncate">
-                        {docStates[doc.id]?.file?.name || (doc.file_url ? 'Arquivo enviado ✓' : 'Selecionar arquivo')}
-                      </span>
-                      <input type="file" className="hidden" onChange={(e) => {
-                        if (e.target.files?.[0]) updateDocState(doc.id, 'file', e.target.files[0]);
-                      }} />
-                    </label>
+                    <FileDropzone
+                      compact
+                      label={docStates[doc.id]?.file?.name || (doc.file_url ? 'Arquivo enviado ✓ (selecione para substituir)' : 'Selecionar ou arraste o arquivo')}
+                      onFiles={(files) => {
+                        const f = files[0];
+                        if (!f) return;
+                        if (!validateFileSize(f, MAX_FILE_BYTES)) { toast.error(`${f.name} excede o limite de 250MB`); return; }
+                        updateDocState(doc.id, 'file', f);
+                      }}
+                    />
                     {doc.file_url && (
                       <div className="mt-1">
                         <AttachmentActions fileUrl={doc.file_url} fileName={doc.file_name || doc.document_name} compact />

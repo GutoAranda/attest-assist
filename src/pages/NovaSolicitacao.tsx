@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -12,9 +12,10 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Trash2, Paperclip, FileText, Loader2, GripVertical } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, FileText, Loader2, GripVertical } from 'lucide-react';
 import BulkDocumentImport from '@/components/BulkDocumentImport';
 import { toast } from 'sonner';
+
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,8 @@ import { sendNewSolicitationEmail } from '@/lib/email';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { FileDropzone } from '@/components/FileDropzone';
+import { MAX_FILE_BYTES, validateFileSize } from '@/lib/files';
 
 interface DocumentRow {
   name: string;
@@ -72,8 +75,6 @@ const NovaSolicitacao = () => {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
-  const editId = searchParams.get('editar');
 
   const [operationId, setOperationId] = useState('');
   const [processNumber, setProcessNumber] = useState('');
@@ -83,6 +84,7 @@ const NovaSolicitacao = () => {
   const [observations, setObservations] = useState('');
   const [documents, setDocuments] = useState<DocumentRow[]>([{ name: '', area_id: '' }]);
   const [files, setFiles] = useState<File[]>([]);
+  const isSavingRef = useRef(false);
   const [duplicateDialog, setDuplicateDialog] = useState<string | null>(null);
   const [employeeDuplicateDialog, setEmployeeDuplicateDialog] = useState<{ tickets: { ticket_id: string; process_number: string }[] } | null>(null);
   const [cancelDialog, setCancelDialog] = useState(false);
@@ -104,58 +106,28 @@ const NovaSolicitacao = () => {
     },
   });
 
-  useEffect(() => {
-    if (editId) {
-      setDocuments([]);
-      (async () => {
-        const { data: sol } = await supabase.from('solicitations').select('*').eq('id', editId).single();
-        if (sol) {
-          setOperationId(sol.operation_id);
-          setProcessNumber(sol.process_number || '');
-          setEmployeeName(sol.employee_name || '');
-          setEmployeeRegistration((sol as any).employee_registration || '');
-          setObservations(sol.observations || '');
-          if (sol.deadline) setDeadline(new Date(sol.deadline + 'T00:00:00'));
-        }
-        const { data: docs } = await supabase.from('documents').select('*').eq('solicitation_id', editId);
-        if (docs && docs.length > 0) {
-          setDocuments(docs.map(d => ({ name: d.document_name, area_id: d.responsible_area_id })));
-        } else {
-          setDocuments([{ name: '', area_id: '' }]);
-        }
-      })();
-    }
-  }, [editId]);
-
   const checkDuplicate = async () => {
     const trimmedProcessNumber = processNumber.trim();
     if (!trimmedProcessNumber) return;
 
     const { data, error } = await supabase.rpc('check_duplicate_process', {
       p_number: trimmedProcessNumber,
-      p_exclude_id: editId || null,
+      p_exclude_id: null,
     });
 
     let result = data;
 
     if (error && isMissingDuplicateRpc(error)) {
-      let fallbackQuery = supabase
+      const { data: fallbackData, error: fallbackError } = await supabase
         .from('solicitations')
         .select('ticket_id')
         .eq('process_number', trimmedProcessNumber)
-        .neq('status', 'rascunho')
         .limit(1);
 
-      if (editId) {
-        fallbackQuery = fallbackQuery.neq('id', editId);
-      }
-
-      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
       if (fallbackError) {
         toast.error('Não foi possível validar a duplicidade do processo.');
         return;
       }
-
       result = fallbackData;
     } else if (error) {
       toast.error('Não foi possível validar a duplicidade do processo.');
@@ -173,29 +145,22 @@ const NovaSolicitacao = () => {
 
     const { data, error } = await supabase.rpc('check_duplicate_employee', {
       p_name: trimmedEmployeeName,
-      p_exclude_id: editId || null,
+      p_exclude_id: null,
     });
 
     let result = data;
 
     if (error && isMissingDuplicateRpc(error)) {
-      let fallbackQuery = supabase
+      const { data: fallbackData, error: fallbackError } = await supabase
         .from('solicitations')
         .select('ticket_id, process_number')
         .ilike('employee_name', trimmedEmployeeName)
-        .neq('status', 'rascunho')
         .limit(5);
 
-      if (editId) {
-        fallbackQuery = fallbackQuery.neq('id', editId);
-      }
-
-      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
       if (fallbackError) {
         toast.error('Não foi possível validar a duplicidade do funcionário.');
         return;
       }
-
       result = fallbackData;
     } else if (error) {
       toast.error('Não foi possível validar a duplicidade do funcionário.');
@@ -233,9 +198,6 @@ const NovaSolicitacao = () => {
     setDocuments(updated);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) setFiles([...files, ...Array.from(e.target.files)]);
-  };
   const removeFile = (idx: number) => setFiles(files.filter((_, i) => i !== idx));
 
   const validate = () => {
@@ -248,213 +210,149 @@ const NovaSolicitacao = () => {
     return true;
   };
 
-  const save = async (asDraft: boolean) => {
-    if (!asDraft && !validate()) return;
+  const save = async () => {
+    if (isSavingRef.current) return;
+    if (!validate()) return;
     if (!profile) return;
 
+    isSavingRef.current = true;
     setSaving(true);
+    const toastId = toast.loading('Enviando solicitação...');
+
     try {
-      let solId = editId;
-
-      if (editId) {
-        // EDIT MODE: update existing rascunho or existing solicitation
-        let updateData: any = {
-          operation_id: operationId,
-          process_number: processNumber || null,
-          employee_name: employeeName || null,
-          employee_registration: employeeRegistration || null,
-          observations: observations || null,
-          deadline: deadline ? format(deadline, 'yyyy-MM-dd') : null,
-        };
-
-        // If sending a draft (changing from rascunho to aberto)
-        if (!asDraft) {
-          // Check if rascunho doesn't have ticket_id, generate one
-          const { data: currentSol } = await supabase.from('solicitations').select('ticket_id, status').eq('id', editId).single();
-
-          if (currentSol?.status === 'rascunho' && !currentSol?.ticket_id) {
-            // Generate ticket_id for the rascunho being sent
-            const { data: tid } = await supabase.rpc('generate_ticket_id');
-            updateData.ticket_id = tid as string;
-          }
-
-          // Change status from rascunho to aberto when sending
-          updateData.status = 'aberto';
-        }
-
-        const { error: updErr } = await supabase.from('solicitations').update(updateData as any).eq('id', editId);
-        if (updErr) throw updErr;
-
-        // Delete old documents THEN insert new ones
-        await supabase.from('documents').delete().eq('solicitation_id', editId);
-      } else {
-        // CREATE MODE: generate ticket and UUID
-        let ticketId: string | null = null;
-        if (!asDraft) {
-          const { data: tid, error: tidErr } = await supabase.rpc('generate_operation_ticket_id', { op_id: operationId });
-          if (tidErr) {
-            const { data: fallback } = await supabase.rpc('generate_ticket_id');
-            ticketId = fallback as string;
-          } else {
-            ticketId = tid as string;
-          }
-        }
-        const status = asDraft ? 'rascunho' : 'aberto';
-        const newId = crypto.randomUUID();
-
-        const solData = {
-          id: newId,
-          ticket_id: ticketId,
-          operation_id: operationId,
-          process_number: processNumber.trim() || null,
-          employee_name: employeeName.trim() || null,
-          employee_registration: employeeRegistration.trim() || null,
-          requester_id: profile.id,
-          observations: observations.trim() || null,
-          status,
-          deadline: deadline ? format(deadline, "yyyy-MM-dd") : null,
-        };
-
-        const { error: solErr } = await supabase
-          .from("solicitations")
-          .insert([solData]);
-        if (solErr) throw solErr;
-        solId = newId;
-      }
-
-      // Insert documents
       const validDocs = documents.filter(d => d.name && d.area_id);
-      if (validDocs.length > 0) {
-        await supabase.from('documents').insert(
-          validDocs.map(d => ({
-            solicitation_id: solId!,
-            document_name: d.name,
-            responsible_area_id: d.area_id,
-            status: 'pendente' as const,
-          }))
-        );
+
+      let ticketId: string;
+      const { data: tid, error: tidErr } = await supabase.rpc('generate_operation_ticket_id', { op_id: operationId });
+      if (tidErr) {
+        const { data: fallback } = await supabase.rpc('generate_ticket_id');
+        ticketId = fallback as string;
+      } else {
+        ticketId = tid as string;
       }
 
-      // Upload attachments
-      for (const file of files) {
-        const path = `${solId}/${Date.now()}_${file.name}`;
-        const { error: upErr } = await supabase.storage.from('solicitations').upload(path, file);
-        if (upErr) {
-          console.error('Upload error:', upErr);
-          toast.error('Erro no upload de ' + file.name + ': ' + upErr.message);
-        } else {
-          const { error: attachErr } = await supabase.from('attachments').insert({
-            solicitation_id: solId!,
+      const newId = crypto.randomUUID();
+      const solData = {
+        id: newId,
+        ticket_id: ticketId,
+        operation_id: operationId,
+        process_number: processNumber.trim() || null,
+        employee_name: employeeName.trim() || null,
+        employee_registration: employeeRegistration.trim() || null,
+        requester_id: profile.id,
+        observations: observations.trim() || null,
+        status: 'aberto',
+        deadline: deadline ? format(deadline, 'yyyy-MM-dd') : null,
+      };
+
+      const { error: solErr } = await supabase.from('solicitations').insert([solData]);
+      if (solErr) throw solErr;
+
+      const solId = newId;
+
+      const { error: docInsertErr } = await supabase.from('documents').insert(
+        validDocs.map(d => ({
+          solicitation_id: solId,
+          document_name: d.name,
+          responsible_area_id: d.area_id,
+          status: 'pendente' as const,
+        }))
+      );
+      if (docInsertErr) throw docInsertErr;
+
+      // Upload arquivos em paralelo com Promise.allSettled (não bloquear se um falhar)
+      const uploadResults = await Promise.allSettled(
+        files.map(async (file) => {
+          const path = `${solId}/${Date.now()}_${file.name}`;
+          const { error: upErr } = await supabase.storage.from('solicitations').upload(path, file);
+          if (upErr) throw new Error(`${file.name}: ${upErr.message}`);
+          return { file, path };
+        })
+      );
+      const successfulUploads = uploadResults
+        .filter((r): r is PromiseFulfilledResult<{ file: File; path: string }> => r.status === 'fulfilled')
+        .map((r) => r.value);
+      const failedUploads = uploadResults.filter((r) => r.status === 'rejected');
+      failedUploads.forEach((r: any) => toast.error('Erro no upload: ' + (r.reason?.message || 'desconhecido')));
+
+      if (successfulUploads.length > 0) {
+        const { error: attErr } = await supabase.from('attachments').insert(
+          successfulUploads.map(({ file, path }) => ({
+            solicitation_id: solId,
             file_name: file.name,
             file_url: buildStoragePublicUrl('solicitations', path),
             uploaded_by: profile.id,
-          });
-          if (attachErr) {
-            console.error('Attachment insert error:', attachErr);
-            toast.error('Erro ao registrar anexo: ' + attachErr.message);
-          }
-        }
+          }))
+        );
+        if (attErr) console.error('[NovaSolicitacao] attachments insert failed', attErr);
       }
 
-      // Audit log and notifications
-      if (!asDraft) {
-        // For both new and existing (draft being sent)
-        const { data: solData } = await supabase.from('solicitations').select('ticket_id').eq('id', solId!).single();
-        const ticketId = solData?.ticket_id;
+      await supabase.from('audit_logs').insert({
+        solicitation_id: solId,
+        user_id: profile.id,
+        action: 'Solicitação criada',
+        details: `Ticket ${ticketId} criado por ${profile.name}`,
+      });
 
-        if (!editId) {
-          // New solicitation
-          await supabase.from('audit_logs').insert({
-            solicitation_id: solId!,
-            user_id: profile.id,
-            action: 'Solicitação criada',
-            details: `Ticket ${ticketId} criado por ${profile.name}`,
-          });
-        } else {
-          // Draft being sent
-          await supabase.from('audit_logs').insert({
-            solicitation_id: solId!,
-            user_id: profile.id,
-            action: 'Rascunho enviado',
-            details: `Rascunho enviado como Ticket ${ticketId} por ${profile.name}`,
-          });
-        }
+      // BATCH user_group_assignments em UMA query (era N+1 com 5-25 queries em série)
+      const areaIds = [...new Set(validDocs.map((d) => d.area_id))];
+      const { data: allAssignments } = await supabase
+        .from('user_group_assignments')
+        .select('user_id, area_id')
+        .in('area_id', areaIds)
+        .eq('operation_id', operationId);
 
-        for (const doc of validDocs) {
-          const { data: assignments } = await supabase
-            .from('user_group_assignments')
-            .select('user_id')
-            .eq('area_id', doc.area_id)
-            .eq('operation_id', operationId);
-
-          if (assignments) {
-            const uniqueUsers = [...new Set(assignments.map(a => a.user_id))];
-            for (const userId of uniqueUsers) {
-              await supabase.from('notifications').insert({
-                user_id: userId,
-                type: 'nova_solicitacao',
-                message: `Nova solicitação ${ticketId} recebida`,
-                solicitation_id: solId!,
-              });
-            }
-        }
-
-        // Send emails per area
-        const areaDocsMap: Record<string, { name: string }[]> = {};
-        for (const doc of validDocs) {
-          if (!areaDocsMap[doc.area_id]) areaDocsMap[doc.area_id] = [];
-          areaDocsMap[doc.area_id].push({ name: doc.name });
-        }
-        const opName = operations.find((o: any) => o.id === operationId)?.name || '';
-        for (const [areaId, areaDocs] of Object.entries(areaDocsMap)) {
-          const areaName = areas.find((a: any) => a.id === areaId)?.name || '';
-          sendNewSolicitationEmail(
-            areaId, areaName, operationId, solId!, ticketId || '', opName,
-            employeeName, employeeRegistration, processNumber,
-            deadline ? format(deadline, 'yyyy-MM-dd') : '', observations, areaDocs
-          );
-        }
-        }
-      } else if (editId) {
-        // Draft being saved
-        await supabase.from('audit_logs').insert({
-          solicitation_id: solId!,
-          user_id: profile.id,
-          action: 'Rascunho atualizado',
-          details: `Rascunho atualizado por ${profile.name}`,
-        });
+      const allUserIds = [...new Set((allAssignments || []).map((a: any) => a.user_id))];
+      if (allUserIds.length > 0) {
+        const notificationInserts = allUserIds.map((userId) => ({
+          user_id: userId,
+          type: 'nova_solicitacao' as const,
+          message: `Nova solicitação ${ticketId} recebida`,
+          solicitation_id: solId,
+        }));
+        const { error: notifErr } = await supabase.from('notifications').insert(notificationInserts);
+        if (notifErr) console.error('[NovaSolicitacao] notifications insert failed', notifErr);
       }
 
-      queryClient.invalidateQueries({ queryKey: ['drafts'] });
+      // Enviar emails em paralelo com Promise.allSettled (não bloquear UX se um falhar)
+      const areaDocsMap: Record<string, { name: string }[]> = {};
+      for (const doc of validDocs) {
+        if (!areaDocsMap[doc.area_id]) areaDocsMap[doc.area_id] = [];
+        areaDocsMap[doc.area_id].push({ name: doc.name });
+      }
+      const opName = operations.find((o: any) => o.id === operationId)?.name || '';
+      const emailPromises = Object.entries(areaDocsMap).map(([areaId, areaDocs]) => {
+        const areaName = areas.find((a: any) => a.id === areaId)?.name || '';
+        return sendNewSolicitationEmail(
+          areaId, areaName, operationId, solId, ticketId, opName,
+          employeeName, employeeRegistration, processNumber,
+          deadline ? format(deadline, 'yyyy-MM-dd') : '', observations, areaDocs
+        );
+      });
+      const emailResults = await Promise.allSettled(emailPromises);
+      const failedEmails = emailResults.filter((r) => r.status === 'rejected');
+      if (failedEmails.length > 0) {
+        console.warn(`[NovaSolicitacao] ${failedEmails.length} email(s) failed`, failedEmails);
+      }
+
       queryClient.invalidateQueries({ queryKey: ['solicitations'] });
       queryClient.invalidateQueries({ queryKey: ['documents'] });
 
-      if (editId && !asDraft) {
-        // Draft was sent - redirect to new solicitation
-        toast.success('Solicitação enviada!');
-        navigate(`/solicitacoes/${editId}`);
-      } else if (editId && asDraft) {
-        // Draft updated - stay on drafts
-        toast.success('Rascunho atualizado!');
-        navigate('/rascunhos');
-      } else if (asDraft) {
-        // New draft created
-        toast.success('Rascunho salvo!');
-      } else {
-        // New solicitation created
-        toast.success('Solicitação criada!');
-        navigate(`/solicitacoes/${solId}`);
-      }
+      toast.dismiss(toastId);
+      toast.success('Solicitação criada!');
+      navigate(`/solicitacoes/${solId}`);
     } catch (err: any) {
+      toast.dismiss(toastId);
       toast.error('Erro ao salvar: ' + err.message);
     } finally {
+      isSavingRef.current = false;
       setSaving(false);
     }
   };
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-foreground mb-6">{editId ? 'Editar Solicitação' : 'Nova Solicitação'}</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">Nova Solicitação</h1>
 
       <Card className="p-8 max-w-4xl mx-auto">
         <h2 className="text-lg font-semibold text-primary mb-4 border-b pb-2">Informações do Processo</h2>
@@ -517,12 +415,20 @@ const NovaSolicitacao = () => {
           <Textarea value={observations} onChange={(e) => setObservations(e.target.value)} rows={3} placeholder="Observações gerais sobre a solicitação (opcional)" />
         </div>
 
-        <h2 className="text-lg font-semibold text-primary mb-4 border-b pb-2">Anexos</h2>
-        <label className="block border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary hover:bg-info/5 transition-colors mb-4">
-          <Paperclip className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-          <span className="text-muted-foreground">Arraste arquivos aqui ou clique para selecionar</span>
-          <input type="file" multiple className="hidden" onChange={handleFileSelect} />
-        </label>
+
+        <h2 className="text-lg font-semibold text-primary mb-4 border-b pb-2">Anexos <span className="text-xs font-normal text-muted-foreground">(máx. 250MB por arquivo)</span></h2>
+        <FileDropzone
+          multiple
+          className="mb-4"
+          onFiles={(dropped) => {
+            const accepted: File[] = [];
+            for (const f of dropped) {
+              if (validateFileSize(f, MAX_FILE_BYTES)) accepted.push(f);
+              else toast.error(`${f.name} excede o limite de 250MB`);
+            }
+            if (accepted.length) setFiles((prev) => [...prev, ...accepted]);
+          }}
+        />
         {files.length > 0 && (
           <div className="space-y-2 mb-6">
             {files.map((f, i) => (
@@ -572,10 +478,7 @@ const NovaSolicitacao = () => {
 
         <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
           <Button variant="outline" className="text-muted-foreground" onClick={() => setCancelDialog(true)}>Cancelar</Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save(true)} disabled={saving}>
-            {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Salvando...</> : 'Salvar rascunho'}
-          </Button>
-          <Button className="bg-accent text-accent-foreground hover:bg-accent-hover" onClick={() => save(false)} disabled={saving}>
+          <Button className="bg-accent text-accent-foreground hover:bg-accent-hover" onClick={save} disabled={saving}>
             {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Enviando...</> : 'Enviar solicitação'}
           </Button>
         </div>

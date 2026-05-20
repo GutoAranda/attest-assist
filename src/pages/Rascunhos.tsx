@@ -15,6 +15,7 @@ const Rascunhos = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const { data: drafts = [], isLoading } = useQuery({
     queryKey: ['drafts', profile?.id],
@@ -32,10 +33,32 @@ const Rascunhos = () => {
   });
 
   const deleteDraft = async (id: string) => {
-    await supabase.from('solicitations').delete().eq('id', id);
-    queryClient.invalidateQueries({ queryKey: ['drafts'] });
+    const draftToDelete = drafts.find((d: any) => d.id === id);
     setDeleteDialog(null);
-    toast.success('Rascunho excluído');
+    setDeletingId(id);
+
+    // OPTIMISTIC: Remove from UI immediately
+    const previousDrafts = queryClient.getQueryData(['drafts', profile?.id]);
+    queryClient.setQueryData(['drafts', profile?.id], (old: any) =>
+      old.filter((d: any) => d.id !== id)
+    );
+
+    toast.loading('Excluindo rascunho...');
+
+    // In background: Actually delete from server
+    const { error } = await supabase.from('solicitations').delete().eq('id', id);
+
+    setDeletingId(null);
+    if (error) {
+      // ROLLBACK: Re-add to UI if failed
+      queryClient.setQueryData(['drafts', profile?.id], previousDrafts);
+      toast.dismiss();
+      toast.error('Erro ao excluir: ' + error.message);
+    } else {
+      // Success: Confirm deletion
+      toast.dismiss();
+      toast.success('Rascunho excluído');
+    }
   };
 
   return (
@@ -53,7 +76,7 @@ const Rascunhos = () => {
       ) : (
         <div className="space-y-3">
           {drafts.map((d: any) => (
-            <Card key={d.id} className="p-4 flex items-center justify-between">
+            <Card key={d.id} className={`p-4 flex items-center justify-between transition-opacity ${deletingId === d.id ? 'opacity-50' : ''}`}>
               <div>
                 <p className="font-semibold text-foreground">{(d.operations as any)?.name || 'Sem operação'}</p>
                 <p className="text-sm text-muted-foreground">
@@ -61,10 +84,10 @@ const Rascunhos = () => {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => navigate(`/nova-solicitacao?editar=${d.id}`)}>
+                <Button variant="outline" size="sm" onClick={() => navigate(`/nova-solicitacao?editar=${d.id}`)} disabled={deletingId === d.id}>
                   <Edit className="h-4 w-4 mr-1" /> Editar
                 </Button>
-                <Button variant="destructive" size="sm" onClick={() => setDeleteDialog(d.id)}>
+                <Button variant="destructive" size="sm" onClick={() => setDeleteDialog(d.id)} disabled={deletingId === d.id}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>

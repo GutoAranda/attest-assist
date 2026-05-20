@@ -9,17 +9,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, DocStatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2, PackageOpen, History, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Download, FileText, Loader2, PackageOpen, History, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { openStorageFile } from '@/lib/storage';
 import { AttachmentActions } from '@/components/FilePreviewDialog';
 import { sendRevisionEmail, sendCommentEmail, sendCancelEmail, sendConclusionEmail, sendReopenEmail, getAttendeesEmails } from '@/lib/email';
-import JSZip from 'jszip';
+import { TagsBar } from '@/components/TagsBar';
+import { TicketActions } from '@/components/TicketActions';
 
 const DetalheTicketJuridico = () => {
   const { id } = useParams();
@@ -27,7 +25,6 @@ const DetalheTicketJuridico = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [comment, setComment] = useState('');
-  const [isInternal, setIsInternal] = useState(false);
   const [sendingComment, setSendingComment] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [cancelDialog, setCancelDialog] = useState(false);
@@ -51,6 +48,17 @@ const DetalheTicketJuridico = () => {
   const typingTimeout = useRef<ReturnType<typeof setTimeout>>();
   const channelRef = useRef<any>(null);
 
+  // Invalidate only queries related to this ticket (avoid global cache wipe)
+  const invalidateTicketQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ['solicitation', id] });
+    queryClient.invalidateQueries({ queryKey: ['documents', id] });
+    queryClient.invalidateQueries({ queryKey: ['all-attachments', id] });
+    queryClient.invalidateQueries({ queryKey: ['comments', id] });
+    queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+    queryClient.invalidateQueries({ queryKey: ['area-conclusions', id] });
+    queryClient.invalidateQueries({ queryKey: ['solicitations'] });
+  };
+
   const { data: solicitation, isLoading } = useQuery({
     queryKey: ['solicitation', id],
     queryFn: async () => {
@@ -71,21 +79,23 @@ const DetalheTicketJuridico = () => {
     },
   });
 
-  const { data: attachments = [] } = useQuery({
-    queryKey: ['attachments', id],
+  // Single query for all attachments, split client-side (saves 1 round-trip)
+  const { data: allAttachments = [] } = useQuery({
+    queryKey: ['all-attachments', id],
     queryFn: async () => {
-      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).is('document_id', null).order('uploaded_at');
+      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).order('uploaded_at');
       return data || [];
     },
   });
 
-  const { data: docAttachments = [] } = useQuery({
-    queryKey: ['doc-attachments', id],
-    queryFn: async () => {
-      const { data } = await supabase.from('attachments').select('*, profiles(name)').eq('solicitation_id', id).not('document_id', 'is', null).order('uploaded_at');
-      return data || [];
-    },
-  });
+  const attachments = useMemo(
+    () => allAttachments.filter((a: any) => !a.document_id),
+    [allAttachments]
+  );
+  const docAttachments = useMemo(
+    () => allAttachments.filter((a: any) => !!a.document_id),
+    [allAttachments]
+  );
 
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', id],
@@ -116,7 +126,6 @@ const DetalheTicketJuridico = () => {
     queryFn: async () => (await supabase.from('areas').select('id, name').eq('active', true).order('name')).data || [],
   });
 
-
   useEffect(() => {
     if (!id || !profile) return;
     const channel = supabase.channel(`typing-${id}`);
@@ -128,7 +137,11 @@ const DetalheTicketJuridico = () => {
       }
     }).subscribe();
     channelRef.current = channel;
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    };
   }, [id, profile]);
 
   const broadcastTyping = () => {
@@ -148,44 +161,66 @@ const DetalheTicketJuridico = () => {
     return groups;
   }, [documents]);
 
-  const getDocVersions = (docId: string) => {
-    return docAttachments.filter((a: any) => a.document_id === docId).sort((a: any, b: any) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime());
-  };
+  // Pre-compute doc versions map (avoids O(N*M) filtering on every render)
+  const docVersionsMap = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    for (const att of docAttachments) {
+      const docId = (att as any).document_id;
+      if (!docId) continue;
+      if (!map[docId]) map[docId] = [];
+      map[docId].push(att);
+    }
+    // Sort each version list once
+    for (const docId in map) {
+      map[docId].sort((a: any, b: any) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime());
+    }
+    return map;
+  }, [docAttachments]);
+
+  const getDocVersions = (docId: string) => docVersionsMap[docId] || [];
 
   const sendComment = async () => {
-    if (!comment.trim() || !profile) return;
+    const trimmed = comment.trim();
+    if (!trimmed || !profile) return;
     setSendingComment(true);
     try {
-      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment, is_internal: isInternal });
-      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: isInternal ? 'Nota interna adicionada' : 'Comentário adicionado', details: comment });
+      const { error: commentErr } = await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: trimmed });
+      if (commentErr) throw commentErr;
+
+      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: trimmed });
+
+      const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
       if (solicitation) {
-        if (isInternal) {
-          // Internal note: notify only other jurídico users in-app; no emails to atendentes
-          const { data: juridicoProfiles } = await supabase.from('profiles').select('id').eq('role', 'juridico').eq('is_active', true);
-          const recipients = (juridicoProfiles || []).map((p: any) => p.id).filter((uid: string) => uid !== profile.id);
-          for (const userId of recipients) {
-            await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Nova nota interna em ${solicitation.ticket_id}`, solicitation_id: id! });
-          }
-        } else {
-          const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
-          const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
-          const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
-          for (const userId of uniqueUsers) {
-            if (userId !== profile.id) {
-              await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
-            }
-          }
-          // Send emails to attendees
-          const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
-          for (const email of emails) {
-            await sendCommentEmail(email, id!, solicitation.ticket_id!, comment, profile.name, 'atendente');
-          }
+        const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
+        const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))].filter(u => u !== profile.id);
+
+        // Batch insert notifications (era N+1 em loop)
+        if (uniqueUsers.length > 0) {
+          await supabase.from('notifications').insert(
+            uniqueUsers.map(userId => ({
+              user_id: userId,
+              type: 'comentario' as const,
+              message: `Novo comentário em ${solicitation.ticket_id}`,
+              solicitation_id: id!,
+            }))
+          );
         }
+
+        // Envio paralelo de emails (com error handling individual)
+        const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
+        const emailResults = await Promise.allSettled(
+          emails.map(email => sendCommentEmail(email, id!, solicitation.ticket_id!, trimmed, profile.name, 'atendente'))
+        );
+        const failed = emailResults.filter(r => r.status === 'rejected').length;
+        if (failed > 0) console.warn(`[sendComment] ${failed}/${emails.length} emails failed`);
       }
+
       setComment('');
-      setIsInternal(false);
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+    } catch (err: any) {
+      console.error('[sendComment]', err);
+      toast.error('Não foi possível enviar o comentário. Tente novamente.');
     } finally {
       setSendingComment(false);
     }
@@ -194,6 +229,7 @@ const DetalheTicketJuridico = () => {
   const handleCancel = async () => {
     if (!cancelReason.trim()) { toast.error('Informe o motivo'); return; }
     setCancelling(true);
+    const toastId = toast.loading('Cancelando solicitação...');
     try {
       await supabase.from('solicitations').update({ status: 'cancelado', cancel_reason: cancelReason }).eq('id', id);
       await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile!.id, action: 'Solicitação cancelada', details: cancelReason });
@@ -208,9 +244,13 @@ const DetalheTicketJuridico = () => {
         const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
         await sendCancelEmail(emails, id!, solicitation.ticket_id!, cancelReason, (solicitation.operations as any)?.name, solicitation.employee_name || '');
       }
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
       setCancelDialog(false);
+      toast.dismiss(toastId);
       toast.success('Solicitação cancelada');
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error('Erro ao cancelar: ' + (err as any).message);
     } finally {
       setCancelling(false);
     }
@@ -219,6 +259,7 @@ const DetalheTicketJuridico = () => {
   const handleRevision = async () => {
     if (!revisionReason.trim() || !revisionDialog) { toast.error('Informe o motivo'); return; }
     setRevising(true);
+    const toastId = toast.loading('Solicitando revisão...');
     try {
       await supabase.from('documents').update({ status: 'revisao_solicitada', revision_reason: revisionReason }).eq('id', revisionDialog);
       const doc = documents.find((d: any) => d.id === revisionDialog);
@@ -235,10 +276,14 @@ const DetalheTicketJuridico = () => {
         // Send revision email
         await sendRevisionEmail((doc as any).responsible_area_id, solicitation.operation_id, id!, solicitation.ticket_id!, (doc as any).document_name, revisionReason, (solicitation.operations as any)?.name, solicitation.employee_name || '');
       }
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
       setRevisionDialog(null);
       setRevisionReason('');
+      toast.dismiss(toastId);
       toast.success('Revisão solicitada');
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error('Erro ao solicitar revisão: ' + (err as any).message);
     } finally {
       setRevising(false);
     }
@@ -247,6 +292,7 @@ const DetalheTicketJuridico = () => {
   const handleReopen = async () => {
     if (!reopenReason.trim()) { toast.error('Informe o motivo'); return; }
     setReopening(true);
+    const toastId = toast.loading('Reabrindo solicitação...');
     try {
       await supabase.from('solicitations').update({ status: 'em_atendimento', concluded_at: null }).eq('id', id);
       await supabase.from('area_conclusions').delete().eq('solicitation_id', id!);
@@ -265,10 +311,14 @@ const DetalheTicketJuridico = () => {
           await sendReopenEmail(areaId, solicitation.operation_id, id!, solicitation.ticket_id!, reopenReason, (solicitation.operations as any)?.name, solicitation.employee_name || '', areaDocs);
         }
       }
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
       setReopenDialog(false);
       setReopenReason('');
+      toast.dismiss(toastId);
       toast.success('Solicitação reaberta');
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error('Erro ao reabrir: ' + (err as any).message);
     } finally {
       setReopening(false);
     }
@@ -276,59 +326,93 @@ const DetalheTicketJuridico = () => {
 
   const handleDownloadZip = async () => {
     setZipping(true);
+    const toastId = toast.loading('Preparando ZIP...');
     try {
+      // LAZY LOAD: JSZip only when user clicks download
+      const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
-      const allFiles: { name: string; url: string }[] = [];
+      const ticketCode = solicitation?.ticket_id?.replace(/[#\/\\:*?"<>|]/g, '') || 'ticket';
+      const root = zip.folder(ticketCode)!;
+      const docsFolder = root.folder('documentos')!;
+      const anexosFolder = root.folder('anexos')!;
+      const versoesFolder = root.folder('versoes-anteriores')!;
+      const seenDocs = new Set<string>();
+      const seenAnexos = new Set<string>();
+      const seenVersoes = new Set<string>();
 
-      documents.forEach((doc: any) => {
-        if (doc.file_url) allFiles.push({ name: `documentos/${sanitizeFileName(doc.document_name)}${getFileExtFromUrl(doc.file_url)}`, url: doc.file_url });
-      });
-      attachments.forEach((a: any) => {
-        allFiles.push({ name: `anexos/${a.file_name}`, url: a.file_url });
-      });
+      const dedupe = (set: Set<string>, name: string) => {
+        if (!set.has(name)) { set.add(name); return name; }
+        const dot = name.lastIndexOf('.');
+        const base = dot > 0 ? name.slice(0, dot) : name;
+        const ext = dot > 0 ? name.slice(dot) : '';
+        let i = 2;
+        while (set.has(`${base} (${i})${ext}`)) i++;
+        const out = `${base} (${i})${ext}`;
+        set.add(out);
+        return out;
+      };
 
-      const docNameById = new Map<string, string>(
-        documents.map((d: any) => [d.id, d.document_name as string])
+      const fetchBlob = async (url: string) => {
+        const finalUrl = url.includes('/storage/v1/object/public/') ? url : url.replace('/object/sign/', '/object/public/').split('?')[0];
+        const response = await fetch(finalUrl);
+        if (!response.ok) return null;
+        return response.blob();
+      };
+
+      // Build list of all fetch jobs first (so we can run them in parallel)
+      type Job = { url: string; folder: any; filename: string };
+      const jobs: Job[] = [];
+
+      // Documents: rename to "<area> - <doc-name>.<ext>"
+      for (const doc of documents as any[]) {
+        if (!doc.file_url) continue;
+        const ext = getFileExtFromUrl(doc.file_url);
+        const areaName = (doc.areas as any)?.name ? sanitizeFileName((doc.areas as any).name) : '';
+        const docName = sanitizeFileName(doc.document_name || 'documento');
+        const candidate = dedupe(seenDocs, areaName ? `${areaName} - ${docName}${ext}` : `${docName}${ext}`);
+        jobs.push({ url: doc.file_url, folder: docsFolder, filename: candidate });
+      }
+
+      // Solicitation attachments
+      for (const a of attachments as any[]) {
+        if (!a.file_url || a.deleted_at) continue;
+        const candidate = dedupe(seenAnexos, sanitizeFileName(a.file_name || 'anexo'));
+        jobs.push({ url: a.file_url, folder: anexosFolder, filename: candidate });
+      }
+
+      // Document version history
+      for (const a of docAttachments as any[]) {
+        if (!a.file_url || a.deleted_at) continue;
+        const candidate = dedupe(seenVersoes, sanitizeFileName(a.file_name || 'versao'));
+        jobs.push({ url: a.file_url, folder: versoesFolder, filename: candidate });
+      }
+
+      // Fetch all files in parallel (10x-50x faster than sequential)
+      // Each failure is isolated so the whole ZIP doesn't break if one file fails
+      const results = await Promise.allSettled(
+        jobs.map(async (job) => {
+          const blob = await fetchBlob(job.url);
+          if (blob) job.folder.file(job.filename, blob);
+          return blob !== null;
+        })
       );
-      const versionsByDoc = new Map<string, any[]>();
-      docAttachments.forEach((a: any) => {
-        if (!a.document_id) return;
-        const arr = versionsByDoc.get(a.document_id) ?? [];
-        arr.push(a);
-        versionsByDoc.set(a.document_id, arr);
-      });
-      versionsByDoc.forEach((versions, docId) => {
-        versions
-          .sort((x: any, y: any) => new Date(x.uploaded_at).getTime() - new Date(y.uploaded_at).getTime())
-          .forEach((v: any, idx: number) => {
-            const docName = sanitizeFileName(docNameById.get(docId) || v.file_name);
-            const ext = getFileExtFromUrl(v.file_url);
-            allFiles.push({ name: `versoes/${docName}_v${idx + 1}${ext}`, url: v.file_url });
-          });
-      });
-
-      for (const file of allFiles) {
-        try {
-          const url = file.url.includes('/storage/v1/object/public/') ? file.url : file.url.replace('/object/sign/', '/object/public/').split('?')[0];
-          const response = await fetch(url);
-          if (response.ok) {
-            const blob = await response.blob();
-            zip.file(file.name, blob);
-          }
-        } catch (err) {
-          console.error('Failed to fetch file:', file.name, err);
-        }
+      const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value)).length;
+      if (failed > 0) {
+        console.warn(`[zip] ${failed}/${jobs.length} files failed to download`);
       }
 
       const content = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(content);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${solicitation?.ticket_id || 'documentos'}_documentos.zip`;
+      a.download = `${ticketCode}_documentos.zip`;
       a.click();
       URL.revokeObjectURL(url);
+      toast.dismiss(toastId);
       toast.success('ZIP baixado com sucesso!');
     } catch (err) {
+      toast.dismiss(toastId);
+      console.error(err);
       toast.error('Erro ao gerar ZIP');
     } finally {
       setZipping(false);
@@ -386,7 +470,7 @@ const DetalheTicketJuridico = () => {
       });
       toast.success('Arquivos excluídos com sucesso!');
       setDeleteFilesDialog(false);
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
     } catch (err: any) {
       toast.error('Erro ao excluir arquivos: ' + err.message);
     } finally {
@@ -428,7 +512,7 @@ const DetalheTicketJuridico = () => {
 
       toast.success('Área atualizada!');
       setChangingAreaDoc(null);
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
     } catch (err: any) {
       toast.error('Erro ao alterar área: ' + err.message);
     } finally {
@@ -465,11 +549,6 @@ const DetalheTicketJuridico = () => {
                 {zipping ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <PackageOpen className="h-4 w-4 mr-1" />} Baixar todos (ZIP)
               </Button>
             )}
-            {solicitation.status === 'aberto' && (
-              <Button variant="outline" size="sm" onClick={() => navigate(`/nova-solicitacao?editar=${id}`)}>
-                <Edit className="h-4 w-4 mr-1" /> Editar
-              </Button>
-            )}
             {solicitation.status === 'concluido' && (
               <Button variant="outline" size="sm" className="text-warning border-warning hover:bg-warning/10" onClick={() => setReopenDialog(true)}>
                 <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
@@ -485,12 +564,25 @@ const DetalheTicketJuridico = () => {
                 <Trash2 className="h-4 w-4 mr-1" /> Excluir arquivos
               </Button>
             )}
+            <TicketActions
+              ticketId={solicitation.ticket_id || ''}
+              ticketUuid={id!}
+              employeeName={solicitation.employee_name}
+              operationName={(solicitation.operations as any)?.name}
+              deadline={solicitation.deadline}
+              observations={solicitation.observations}
+              status={solicitation.status}
+              documents={documents}
+              comments={comments}
+              auditLogs={auditLogs}
+            />
           </div>
         </div>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           <h1 className="text-xl md:text-2xl font-bold text-foreground">Solicitação {solicitation.ticket_id}</h1>
           <StatusBadge status={solicitation.status as any} />
         </div>
+        <div className="mb-4"><TagsBar solicitationId={id!} /></div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
           <div><p className="text-sm text-muted-foreground">Operação</p><p className="font-semibold">{(solicitation.operations as any)?.name}</p></div>
           <div><p className="text-sm text-muted-foreground">Nº Processo</p><p className="font-semibold text-sm">{solicitation.process_number || '—'}</p></div>
@@ -553,7 +645,7 @@ const DetalheTicketJuridico = () => {
             const versions = getDocVersions(doc.id);
             const hasVersions = versions.length > 1 || (versions.length > 0 && doc.revision_reason);
             return (
-              <div key={doc.id} className="bg-accent rounded-lg p-4 mb-3 border">
+              <div key={doc.id} className="bg-card rounded-lg p-4 mb-3 border border-border-strong">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="font-semibold">{doc.document_name}</span>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -629,25 +721,9 @@ const DetalheTicketJuridico = () => {
         <h2 className="text-lg font-semibold text-primary mb-4">Comentários</h2>
         <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
           {comments.map((c: any) => (
-            <div
-              key={c.id}
-              className={`p-3 rounded-lg ${
-                c.is_internal
-                  ? 'bg-amber-50 border-l-4 border-amber-400'
-                  : (c.profiles as any)?.role === 'juridico'
-                  ? 'bg-info/5'
-                  : 'bg-accent'
-              }`}
-            >
-              <div className="flex justify-between text-xs text-muted-foreground mb-1 flex-wrap gap-1">
-                <span className="font-medium flex items-center gap-2">
-                  {(c.profiles as any)?.name} ({(c.profiles as any)?.role === 'juridico' ? 'Jurídico' : 'Atendente'})
-                  {c.is_internal && (
-                    <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] px-1.5 py-0">
-                      Nota interna
-                    </Badge>
-                  )}
-                </span>
+            <div key={c.id} className="p-3 rounded-lg bg-accent">
+              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                <span className="font-medium">{(c.profiles as any)?.name} ({(c.profiles as any)?.role === 'juridico' ? 'Jurídico' : 'Atendente'})</span>
                 <span>{new Date(c.created_at).toLocaleString('pt-BR')}</span>
               </div>
               <p className="text-sm">{c.message}</p>
@@ -659,27 +735,11 @@ const DetalheTicketJuridico = () => {
           <p className="text-xs text-muted-foreground mb-2 animate-pulse">{typingUser} está digitando...</p>
         )}
         {solicitation.status !== 'cancelado' && solicitation.status !== 'concluido' && (
-          <div className="space-y-2">
-            {profile?.role === 'juridico' && (
-              <div className="flex items-center gap-2">
-                <Switch id="nota-interna" checked={isInternal} onCheckedChange={setIsInternal} />
-                <Label htmlFor="nota-interna" className="text-sm cursor-pointer">
-                  Nota interna (visível apenas ao Jurídico)
-                </Label>
-              </div>
-            )}
-            <div className="flex gap-2">
-              <Textarea
-                value={comment}
-                onChange={(e) => { setComment(e.target.value); broadcastTyping(); }}
-                rows={2}
-                placeholder={isInternal ? 'Escreva uma nota interna...' : 'Escreva um comentário...'}
-                className={`flex-1 ${isInternal ? 'bg-amber-50/50 border-amber-300' : ''}`}
-              />
-              <Button size="sm" className="self-end" disabled={!comment.trim() || sendingComment} onClick={sendComment}>
-                {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-1" /> Enviar</>}
-              </Button>
-            </div>
+          <div className="flex gap-2">
+            <Textarea value={comment} onChange={(e) => { setComment(e.target.value); broadcastTyping(); }} rows={2} placeholder="Escreva um comentário..." className="flex-1" />
+            <Button size="sm" className="self-end" disabled={!comment.trim() || sendingComment} onClick={sendComment}>
+              {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-1" /> Enviar</>}
+            </Button>
           </div>
         )}
       </Card>

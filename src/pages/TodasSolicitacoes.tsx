@@ -6,25 +6,107 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { StatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
-import { Search, Download, ChevronUp, ChevronDown } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Search, Download, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 
 type SortCol = 'ticket_id' | 'operation' | 'employee_name' | 'employee_registration' | 'requester' | 'status' | 'deadline';
 
+interface FilterDropdownProps {
+  label: string;
+  items: Array<{ id: string; name: string }>;
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}
+
+const FilterDropdown = ({ label, items, selectedIds, onChange }: FilterDropdownProps) => {
+  const toggle = (id: string) => {
+    onChange(selectedIds.includes(id)
+      ? selectedIds.filter(x => x !== id)
+      : [...selectedIds, id]
+    );
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" className="w-full justify-between">
+          <span className="truncate">
+            {label}
+            {selectedIds.length > 0 && <span className="ml-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">{selectedIds.length}</span>}
+          </span>
+          <ChevronDown className="h-4 w-4 opacity-50 ml-2 shrink-0" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="max-h-72 overflow-y-auto w-56">
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {items.map(item => (
+          <DropdownMenuCheckboxItem
+            key={item.id}
+            checked={selectedIds.includes(item.id)}
+            onCheckedChange={() => toggle(item.id)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            {item.name}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
 const TodasSolicitacoes = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('todos');
-  const [operationFilter, setOperationFilter] = useState('todos');
-  const [requesterFilter, setRequesterFilter] = useState('todos');
-  const [page, setPage] = useState(0);
-  const [sortCol, setSortCol] = useState<SortCol | null>(null);
-  const [sortAsc, setSortAsc] = useState(true);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // Filters persisted to URL params so they survive navigation away/back
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const getList = (key: string) => searchParams.get(key)?.split(',').filter(Boolean) || [];
+  const setList = (key: string, values: string[]) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (values.length > 0) next.set(key, values.join(','));
+      else next.delete(key);
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  };
+  const setParam = (key: string, value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set(key, value);
+      else next.delete(key);
+      return next;
+    }, { replace: true });
+  };
+
+  const search = searchParams.get('q') || '';
+  const operationFilters = getList('op');
+  const requesterFilters = getList('req');
+  const statusFilters = getList('st');
+  const page = parseInt(searchParams.get('page') || '0', 10);
+  const sortCol = (searchParams.get('sort') as SortCol) || null;
+  const sortAsc = searchParams.get('dir') !== 'desc';
+  const dateFrom = searchParams.get('from') || '';
+  const dateTo = searchParams.get('to') || '';
+
+  const setSearch = (v: string) => setParam('q', v);
+  const setOperationFilters = (v: string[]) => setList('op', v);
+  const setRequesterFilters = (v: string[]) => setList('req', v);
+  const setStatusFilters = (v: string[]) => setList('st', v);
+  const setPage = (v: number) => setParam('page', v > 0 ? String(v) : '');
+  const setDateFrom = (v: string) => setParam('from', v);
+  const setDateTo = (v: string) => setParam('to', v);
   const PAGE_SIZE = 10;
 
   const { data: operations = [] } = useQuery({
@@ -44,22 +126,30 @@ const TodasSolicitacoes = () => {
   });
 
   const { data: result, isLoading } = useQuery({
-    queryKey: ['all-solicitations', search, statusFilter, operationFilter, requesterFilter, page, dateFrom, dateTo],
+    queryKey: ['all-solicitations', search, statusFilters, operationFilters, requesterFilters, page, dateFrom, dateTo],
     queryFn: async () => {
       let query = supabase
         .from('solicitations')
         .select('*, operations(name), profiles!solicitations_requester_id_fkey(name), documents(id, responsible_area_id, areas(name))', { count: 'exact' })
         .neq('status', 'rascunho');
 
-      if (statusFilter !== 'todos' && statusFilter !== 'vencidos') {
-        query = query.eq('status', statusFilter);
+      if (statusFilters.length > 0) {
+        if (statusFilters.includes('vencidos')) {
+          const today = new Date().toISOString().split('T')[0];
+          const statusList = statusFilters.filter(s => s !== 'vencidos');
+          const vencidosStatuses = ['aberto', 'em_atendimento', 'parcialmente_concluido'];
+          const combined = [...statusList, ...vencidosStatuses];
+          query = query.in('status', combined).lt('deadline', today);
+        } else {
+          query = query.in('status', statusFilters);
+        }
       }
-      if (statusFilter === 'vencidos') {
-        const today = new Date().toISOString().split('T')[0];
-        query = query.in('status', ['aberto', 'em_atendimento', 'parcialmente_concluido']).lt('deadline', today);
+      if (operationFilters.length > 0) {
+        query = query.in('operation_id', operationFilters);
       }
-      if (operationFilter !== 'todos') query = query.eq('operation_id', operationFilter);
-      if (requesterFilter !== 'todos') query = query.eq('requester_id', requesterFilter);
+      if (requesterFilters.length > 0) {
+        query = query.in('requester_id', requesterFilters);
+      }
       if (search) {
         query = query.or(`ticket_id.ilike.%${search}%,process_number.ilike.%${search}%,employee_name.ilike.%${search}%`);
       }
@@ -120,14 +210,24 @@ const TodasSolicitacoes = () => {
   const totalPages = Math.ceil(sortedItems.length / PAGE_SIZE);
 
   const toggleSort = (col: SortCol) => {
-    if (sortCol === col) {
-      if (sortAsc) { setSortAsc(false); }
-      else { setSortCol(null); setSortAsc(true); }
-    } else {
-      setSortCol(col);
-      setSortAsc(true);
-    }
-    setPage(0);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      const currentSort = next.get('sort');
+      const currentDir = next.get('dir');
+      if (currentSort === col) {
+        if (currentDir !== 'desc') {
+          next.set('dir', 'desc');
+        } else {
+          next.delete('sort');
+          next.delete('dir');
+        }
+      } else {
+        next.set('sort', col);
+        next.delete('dir');
+      }
+      next.delete('page');
+      return next;
+    }, { replace: true });
   };
 
   const SortHeader = ({ col, children }: { col: SortCol; children: React.ReactNode }) => (
@@ -179,36 +279,130 @@ const TodasSolicitacoes = () => {
             <Input className="pl-10" placeholder="Buscar por ticket, processo ou funcionário..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <Select value={operationFilter} onValueChange={(v) => { setOperationFilter(v); setPage(0); }}>
-            <SelectTrigger><SelectValue placeholder="Operação" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todas operações</SelectItem>
-              {operations.map((o: any) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={requesterFilter} onValueChange={(v) => { setRequesterFilter(v); setPage(0); }}>
-            <SelectTrigger><SelectValue placeholder="Solicitante" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos solicitantes</SelectItem>
-              {profiles.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos status</SelectItem>
-              <SelectItem value="aberto">Aberto</SelectItem>
-              <SelectItem value="em_atendimento">Em atendimento</SelectItem>
-              <SelectItem value="parcialmente_concluido">Parc. concluído</SelectItem>
-              <SelectItem value="concluido">Concluído</SelectItem>
-              <SelectItem value="cancelado">Cancelado</SelectItem>
-              <SelectItem value="vencidos">Vencidos</SelectItem>
-            </SelectContent>
-          </Select>
+
+        {/* Dropdowns Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+          <FilterDropdown
+            label="Operação"
+            items={operations}
+            selectedIds={operationFilters}
+            onChange={(ids) => { setOperationFilters(ids); setPage(0); }}
+          />
+          <FilterDropdown
+            label="Solicitante"
+            items={profiles}
+            selectedIds={requesterFilters}
+            onChange={(ids) => { setRequesterFilters(ids); setPage(0); }}
+          />
+          <FilterDropdown
+            label="Status"
+            items={[
+              { id: 'aberto', name: 'Aberto' },
+              { id: 'em_atendimento', name: 'Em atendimento' },
+              { id: 'parcialmente_concluido', name: 'Parc. concluído' },
+              { id: 'concluido', name: 'Concluído' },
+              { id: 'cancelado', name: 'Cancelado' },
+              { id: 'vencidos', name: 'Vencidos' },
+            ]}
+            selectedIds={statusFilters}
+            onChange={(ids) => { setStatusFilters(ids); setPage(0); }}
+          />
+        </div>
+
+        {/* Date Range */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }} placeholder="De" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }} placeholder="Até" />
         </div>
+
+        {/* Active Filters Chips */}
+        {(operationFilters.length > 0 || requesterFilters.length > 0 || statusFilters.length > 0 || dateFrom || dateTo) && (
+          <div className="flex flex-wrap gap-2 p-4 bg-muted rounded-lg mb-4">
+            {operationFilters.map(id => {
+              const op = operations.find(o => o.id === id);
+              return op ? (
+                <div
+                  key={`op-${id}`}
+                  className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm"
+                >
+                  {op.name}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:opacity-70"
+                    onClick={() => setOperationFilters(prev => prev.filter(x => x !== id))}
+                  />
+                </div>
+              ) : null;
+            })}
+
+            {requesterFilters.map(id => {
+              const profile = profiles.find(p => p.id === id);
+              return profile ? (
+                <div
+                  key={`req-${id}`}
+                  className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm"
+                >
+                  {profile.name}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:opacity-70"
+                    onClick={() => setRequesterFilters(prev => prev.filter(x => x !== id))}
+                  />
+                </div>
+              ) : null;
+            })}
+
+            {statusFilters.map(status => {
+              const statusLabel = status === 'em_atendimento' ? 'Em atendimento' : status === 'parcialmente_concluido' ? 'Parc. concluído' : status.charAt(0).toUpperCase() + status.slice(1);
+              return (
+                <div
+                  key={`st-${status}`}
+                  className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm"
+                >
+                  {statusLabel}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:opacity-70"
+                    onClick={() => setStatusFilters(prev => prev.filter(s => s !== status))}
+                  />
+                </div>
+              );
+            })}
+
+            {dateFrom && (
+              <div className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm">
+                De: {new Date(dateFrom).toLocaleDateString('pt-BR')}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:opacity-70"
+                  onClick={() => setDateFrom('')}
+                />
+              </div>
+            )}
+
+            {dateTo && (
+              <div className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm">
+                Até: {new Date(dateTo).toLocaleDateString('pt-BR')}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:opacity-70"
+                  onClick={() => setDateTo('')}
+                />
+              </div>
+            )}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setOperationFilters([]);
+                setRequesterFilters([]);
+                setStatusFilters([]);
+                setDateFrom('');
+                setDateTo('');
+                setPage(0);
+              }}
+              className="text-xs"
+            >
+              Limpar tudo
+            </Button>
+          </div>
+        )}
       </Card>
 
       <Card className="overflow-hidden">
