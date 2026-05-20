@@ -5,11 +5,11 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import AppLayout from "@/components/layout/AppLayout";
 import Login from "@/pages/Login";
 
 // Lazy-loaded routes for code splitting (reduces initial bundle size)
 const AceitarConvite = lazy(() => import("@/pages/AceitarConvite"));
+const AppLayout = lazy(() => import("@/components/layout/AppLayout"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const NovaSolicitacao = lazy(() => import("@/pages/NovaSolicitacao"));
 const TodasSolicitacoes = lazy(() => import("@/pages/TodasSolicitacoes"));
