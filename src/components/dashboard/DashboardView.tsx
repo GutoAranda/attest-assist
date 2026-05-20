@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { CalendarIcon, Download, FileSpreadsheet, ChevronDown } from 'lucide-react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import * as XLSX from 'xlsx';
+
 
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
@@ -30,6 +29,20 @@ interface MultiSelectProps {
   items: { id: string; label: string; sub?: string }[];
   selected: string[];
   onChange: (ids: string[]) => void;
+}
+
+interface RechartsComponents {
+  PieChart: any;
+  Pie: any;
+  Cell: any;
+  BarChart: any;
+  Bar: any;
+  XAxis: any;
+  YAxis: any;
+  CartesianGrid: any;
+  Tooltip: any;
+  ResponsiveContainer: any;
+  Legend: any;
 }
 
 const MultiSelect = ({ label, items, selected, onChange }: MultiSelectProps) => {
@@ -84,6 +97,56 @@ const DateField = ({ value, onChange, placeholder }: { value?: Date; onChange: (
   </Popover>
 );
 
+// Chart components that use dynamically loaded Recharts
+const PieChartComponent = ({
+  chartsLib,
+  data,
+  title
+}: {
+  chartsLib: RechartsComponents | null;
+  data: any[];
+  title: string;
+}) => {
+  if (!chartsLib) return <Skeleton className="h-56 w-full" />;
+  if (data.length === 0) return <p className="text-sm text-muted-foreground text-center py-12">Sem dados</p>;
+
+  const { ResponsiveContainer: RC, PieChart: PC, Pie, Cell, Tooltip, Legend } = chartsLib;
+  return (
+    <RC width="100%" height={220}>
+      <PC>
+        <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ value }) => `${value}`}>
+          {data.map((e, i) => <Cell key={i} fill={e.color} />)}
+        </Pie>
+        <Tooltip />
+        <Legend wrapperStyle={{ fontSize: '11px' }} />
+      </PC>
+    </RC>
+  );
+};
+
+const BarChartComponent = ({
+  chartsLib,
+  data
+}: {
+  chartsLib: RechartsComponents | null;
+  data: any[];
+}) => {
+  if (!chartsLib) return <Skeleton className="h-56 w-full" />;
+
+  const { ResponsiveContainer: RC, BarChart: BC, Bar, XAxis, YAxis, CartesianGrid, Tooltip } = chartsLib;
+  return (
+    <RC width="100%" height={220}>
+      <BC data={data}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="label" />
+        <YAxis allowDecimals={false} />
+        <Tooltip />
+        <Bar dataKey="count" fill="#CDD4C1" radius={[4, 4, 0, 0]} />
+      </BC>
+    </RC>
+  );
+};
+
 export const DashboardView = ({ mode, scope, profileId }: Props) => {
   const navigate = useNavigate();
 
@@ -92,6 +155,24 @@ export const DashboardView = ({ mode, scope, profileId }: Props) => {
   const [selAttendants, setSelAttendants] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
+
+  // Lazy-load Recharts components
+  const [rechartsLoaded, setRechartsLoaded] = useState(false);
+  const [chartsLib, setChartsLib] = useState<RechartsComponents | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    import('recharts').then((recharts) => {
+      if (mounted) {
+        setChartsLib(recharts as unknown as RechartsComponents);
+        setRechartsLoaded(true);
+      }
+    }).catch((err) => {
+      console.error('[DashboardView] Failed to lazy-load Recharts:', err);
+      if (mounted) setRechartsLoaded(true); // Still mark as "loaded" so we can show fallback
+    });
+    return () => { mounted = false; };
+  }, []);
 
   // Allowed scope sets (for atendente)
   const allowedOpSet = useMemo(() => mode === 'atendente' ? new Set((scope || []).map(s => s.operation_id)) : null, [mode, scope]);
@@ -340,7 +421,9 @@ export const DashboardView = ({ mode, scope, profileId }: Props) => {
     URL.revokeObjectURL(url);
   };
 
-  const exportXlsx = () => {
+  const exportXlsx = async () => {
+    // Lazy-load xlsx to keep it out of the initial dashboard bundle (~700KB).
+    const XLSX = await import('xlsx');
     const { sols, docs } = buildExportRows();
     const opName = (id: string) => operations.find((o: any) => o.id === id)?.name || '';
     const areaName = (id: string) => areas.find((a: any) => a.id === id)?.name || '';
@@ -415,43 +498,15 @@ export const DashboardView = ({ mode, scope, profileId }: Props) => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             <Card className="p-4">
               <h3 className="text-sm font-semibold text-primary mb-3">Cumprimento de Prazo</h3>
-              {deadlineDist.length === 0 ? <p className="text-sm text-muted-foreground text-center py-12">Sem dados</p> : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={deadlineDist} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, value }) => `${value}`}>
-                      {deadlineDist.map((e, i) => <Cell key={i} fill={e.color} />)}
-                    </Pie>
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
+              <PieChartComponent chartsLib={chartsLib} data={deadlineDist} title="Cumprimento" />
             </Card>
             <Card className="p-4">
               <h3 className="text-sm font-semibold text-primary mb-3">Documentos por Status</h3>
-              {docDist.length === 0 ? <p className="text-sm text-muted-foreground text-center py-12">Sem dados</p> : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={docDist} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ value }) => `${value}`}>
-                      {docDist.map((e, i) => <Cell key={i} fill={e.color} />)}
-                    </Pie>
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
+              <PieChartComponent chartsLib={chartsLib} data={docDist} title="Status" />
             </Card>
             <Card className="p-4">
               <h3 className="text-sm font-semibold text-primary mb-3">Volume (últimos 3 meses)</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={volumeMonths}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="label" />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#CDD4C1" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <BarChartComponent chartsLib={chartsLib} data={volumeMonths} />
             </Card>
           </div>
 
