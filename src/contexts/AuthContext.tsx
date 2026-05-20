@@ -31,40 +31,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-      if (error) throw error;
-      if (data) {
-        setProfile(data as Profile);
-      }
-    } catch (err) {
-      console.error('[fetchProfile] failed:', err);
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+    if (data) {
+      setProfile(data as Profile);
+    } else {
+      setProfile(null);
     }
   };
 
   useEffect(() => {
     let mounted = true;
+    let lastFetchedUserId: string | null = null;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (!mounted) return;
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-        } else {
-          setProfile(null);
-        }
-        if (mounted) setLoading(false);
+    const loadProfile = (userId: string, finishLoading = false) => {
+      if (lastFetchedUserId === userId) {
+        if (finishLoading && mounted) setLoading(false);
+        return;
       }
-    );
+      lastFetchedUserId = userId;
+      fetchProfile(userId)
+        .catch(() => { if (mounted) setProfile(null); })
+        .finally(() => { if (finishLoading && mounted) setLoading(false); });
+    };
+
+    // IMPORTANT: do NOT await Supabase calls inside onAuthStateChange — it can deadlock.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        setTimeout(() => mounted && loadProfile(session.user.id), 0);
+      } else {
+        lastFetchedUserId = null;
+        setProfile(null);
+        setLoading(false);
+      }
+    });
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        loadProfile(session.user.id, true);
+      } else {
+        setLoading(false);
+      }
+    });
 
     const refreshHandler = () => {
-      if (user?.id) fetchProfile(user.id);
+      lastFetchedUserId = null;
+      const uid = (supabase.auth as any)._currentSession?.user?.id;
+      if (uid) loadProfile(uid);
     };
     window.addEventListener('profile-refresh', refreshHandler);
 
@@ -73,8 +95,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subscription.unsubscribe();
       window.removeEventListener('profile-refresh', refreshHandler);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Polling runtime de is_active: se admin desativa, expira sessão em ≤60s
+  useEffect(() => {
+    if (!profile?.user_id) return;
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_active')
+        .eq('user_id', profile.user_id)
+        .single();
+      if (data && data.is_active === false) {
+        await supabase.auth.signOut();
+        setProfile(null);
+        setUser(null);
+        setSession(null);
+        // Soft redirect via reload to clear all state
+        if (typeof window !== 'undefined') window.location.href = '/login';
+      }
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [profile?.user_id]);
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });

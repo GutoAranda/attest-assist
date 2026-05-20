@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, DocStatusBadge, getDeadlineInfo } from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Edit, Download, FileText, Loader2, PackageOpen, History, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Send, XCircle, RotateCcw, Download, FileText, Loader2, PackageOpen, History, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -47,6 +47,17 @@ const DetalheTicketJuridico = () => {
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout>>();
   const channelRef = useRef<any>(null);
+
+  // Invalidate only queries related to this ticket (avoid global cache wipe)
+  const invalidateTicketQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ['solicitation', id] });
+    queryClient.invalidateQueries({ queryKey: ['documents', id] });
+    queryClient.invalidateQueries({ queryKey: ['all-attachments', id] });
+    queryClient.invalidateQueries({ queryKey: ['comments', id] });
+    queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+    queryClient.invalidateQueries({ queryKey: ['area-conclusions', id] });
+    queryClient.invalidateQueries({ queryKey: ['solicitations'] });
+  };
 
   const { data: solicitation, isLoading } = useQuery({
     queryKey: ['solicitation', id],
@@ -126,7 +137,11 @@ const DetalheTicketJuridico = () => {
       }
     }).subscribe();
     channelRef.current = channel;
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    };
   }, [id, profile]);
 
   const broadcastTyping = () => {
@@ -165,28 +180,47 @@ const DetalheTicketJuridico = () => {
   const getDocVersions = (docId: string) => docVersionsMap[docId] || [];
 
   const sendComment = async () => {
-    if (!comment.trim() || !profile) return;
+    const trimmed = comment.trim();
+    if (!trimmed || !profile) return;
     setSendingComment(true);
     try {
-      await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: comment });
-      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: comment });
+      const { error: commentErr } = await supabase.from('comments').insert({ solicitation_id: id!, user_id: profile.id, message: trimmed });
+      if (commentErr) throw commentErr;
+
+      await supabase.from('audit_logs').insert({ solicitation_id: id!, user_id: profile.id, action: 'Comentário adicionado', details: trimmed });
+
       const areaIds = [...new Set(documents.map((d: any) => d.responsible_area_id))];
       if (solicitation) {
         const { data: assignments } = await supabase.from('user_group_assignments').select('user_id').in('area_id', areaIds).eq('operation_id', solicitation.operation_id);
-        const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))];
-        for (const userId of uniqueUsers) {
-          if (userId !== profile.id) {
-            await supabase.from('notifications').insert({ user_id: userId, type: 'comentario', message: `Novo comentário em ${solicitation.ticket_id}`, solicitation_id: id! });
-          }
+        const uniqueUsers = [...new Set((assignments || []).map(a => a.user_id))].filter(u => u !== profile.id);
+
+        // Batch insert notifications (era N+1 em loop)
+        if (uniqueUsers.length > 0) {
+          await supabase.from('notifications').insert(
+            uniqueUsers.map(userId => ({
+              user_id: userId,
+              type: 'comentario' as const,
+              message: `Novo comentário em ${solicitation.ticket_id}`,
+              solicitation_id: id!,
+            }))
+          );
         }
+
+        // Envio paralelo de emails (com error handling individual)
         const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
-        for (const email of emails) {
-          await sendCommentEmail(email, id!, solicitation.ticket_id!, comment, profile.name, 'atendente');
-        }
+        const emailResults = await Promise.allSettled(
+          emails.map(email => sendCommentEmail(email, id!, solicitation.ticket_id!, trimmed, profile.name, 'atendente'))
+        );
+        const failed = emailResults.filter(r => r.status === 'rejected').length;
+        if (failed > 0) console.warn(`[sendComment] ${failed}/${emails.length} emails failed`);
       }
+
       setComment('');
       queryClient.invalidateQueries({ queryKey: ['comments', id] });
       queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+    } catch (err: any) {
+      console.error('[sendComment]', err);
+      toast.error('Não foi possível enviar o comentário. Tente novamente.');
     } finally {
       setSendingComment(false);
     }
@@ -210,7 +244,7 @@ const DetalheTicketJuridico = () => {
         const emails = await getAttendeesEmails(areaIds, solicitation.operation_id);
         await sendCancelEmail(emails, id!, solicitation.ticket_id!, cancelReason, (solicitation.operations as any)?.name, solicitation.employee_name || '');
       }
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
       setCancelDialog(false);
       toast.dismiss(toastId);
       toast.success('Solicitação cancelada');
@@ -242,7 +276,7 @@ const DetalheTicketJuridico = () => {
         // Send revision email
         await sendRevisionEmail((doc as any).responsible_area_id, solicitation.operation_id, id!, solicitation.ticket_id!, (doc as any).document_name, revisionReason, (solicitation.operations as any)?.name, solicitation.employee_name || '');
       }
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
       setRevisionDialog(null);
       setRevisionReason('');
       toast.dismiss(toastId);
@@ -277,7 +311,7 @@ const DetalheTicketJuridico = () => {
           await sendReopenEmail(areaId, solicitation.operation_id, id!, solicitation.ticket_id!, reopenReason, (solicitation.operations as any)?.name, solicitation.employee_name || '', areaDocs);
         }
       }
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
       setReopenDialog(false);
       setReopenReason('');
       toast.dismiss(toastId);
@@ -436,7 +470,7 @@ const DetalheTicketJuridico = () => {
       });
       toast.success('Arquivos excluídos com sucesso!');
       setDeleteFilesDialog(false);
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
     } catch (err: any) {
       toast.error('Erro ao excluir arquivos: ' + err.message);
     } finally {
@@ -478,7 +512,7 @@ const DetalheTicketJuridico = () => {
 
       toast.success('Área atualizada!');
       setChangingAreaDoc(null);
-      queryClient.invalidateQueries();
+      invalidateTicketQueries();
     } catch (err: any) {
       toast.error('Erro ao alterar área: ' + err.message);
     } finally {
@@ -513,11 +547,6 @@ const DetalheTicketJuridico = () => {
             {hasFiles && (
               <Button variant="outline" size="sm" onClick={handleDownloadZip} disabled={zipping}>
                 {zipping ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <PackageOpen className="h-4 w-4 mr-1" />} Baixar todos (ZIP)
-              </Button>
-            )}
-            {solicitation.status === 'aberto' && (
-              <Button variant="outline" size="sm" onClick={() => navigate(`/nova-solicitacao?editar=${id}`)}>
-                <Edit className="h-4 w-4 mr-1" /> Editar
               </Button>
             )}
             {solicitation.status === 'concluido' && (

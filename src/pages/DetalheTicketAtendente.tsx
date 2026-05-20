@@ -129,7 +129,11 @@ const DetalheTicketAtendente = () => {
       }
     }).subscribe();
     channelRef.current = channel;
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    };
   }, [id, profile]);
 
   const broadcastTyping = () => {
@@ -404,7 +408,12 @@ const DetalheTicketAtendente = () => {
         }
       }
 
-      queryClient.invalidateQueries();
+      // Invalidate only queries related to this ticket (avoid global cache wipe)
+      queryClient.invalidateQueries({ queryKey: ['solicitation', id] });
+      queryClient.invalidateQueries({ queryKey: ['documents', id] });
+      queryClient.invalidateQueries({ queryKey: ['area-conclusions', id] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs', id] });
+      queryClient.invalidateQueries({ queryKey: ['solicitations'] });
       toast.dismiss(toastId);
       toast.success('Sua parte foi concluída!');
       navigate('/minhas-solicitacoes');

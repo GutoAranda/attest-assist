@@ -2,6 +2,17 @@ import { supabase } from '@/integrations/supabase/client';
 
 const APP_URL = window.location.origin;
 
+// HTML-escape user-controlled values to prevent injection in rendered emails.
+const escapeHtml = (text: string | null | undefined): string => {
+  if (text === null || text === undefined) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
 const layout = (title: string, body: string) => `
 <!DOCTYPE html>
 <html>
@@ -12,7 +23,7 @@ const layout = (title: string, body: string) => `
       <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:1px;">LOTS <span style="font-weight:300;font-size:14px;">DocFlow</span></h1>
     </div>
     <div style="padding:32px;">
-      <h2 style="color:#1E3A5F;margin:0 0 20px;font-size:18px;">${title}</h2>
+      <h2 style="color:#1E3A5F;margin:0 0 20px;font-size:18px;">${escapeHtml(title)}</h2>
       ${body}
     </div>
     <div style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;">
@@ -22,12 +33,22 @@ const layout = (title: string, body: string) => `
 </body>
 </html>`;
 
-const sendEmail = async (to: string | string[], subject: string, html: string) => {
-  try {
-    await supabase.functions.invoke('send-email', { body: { to, subject, html } });
-  } catch (err) {
-    console.error('Failed to send email:', err);
+// Retries with exponential backoff. Returns true on success, false otherwise.
+const sendEmail = async (to: string | string[], subject: string, html: string, retries = 2): Promise<boolean> => {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const { error } = await supabase.functions.invoke('send-email', { body: { to, subject, html } });
+      if (error) throw error;
+      return true;
+    } catch (err) {
+      if (attempt === retries) {
+        console.error(`[email] Failed after ${retries + 1} attempts:`, err);
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
   }
+  return false;
 };
 
 const ticketLink = (ticketId: string, solId: string, role: 'juridico' | 'atendente') =>
@@ -37,7 +58,8 @@ const linkButton = (url: string, text: string) =>
   `<a href="${url}" style="display:inline-block;background:#1E3A5F;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-size:14px;margin-top:16px;">${text}</a>`;
 
 const infoRow = (label: string, value: string) =>
-  `<p style="margin:4px 0;font-size:14px;color:#374151;"><strong>${label}:</strong> ${value}</p>`;
+  `<p style="margin:4px 0;font-size:14px;color:#374151;"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`;
+
 
 export const sendNewSolicitationEmail = async (
   areaId: string,
@@ -51,7 +73,7 @@ export const sendNewSolicitationEmail = async (
   processNumber: string,
   deadline: string,
   observations: string,
-  areaDocs: { name: string }[]
+  areaDocs: { name: string }[],
 ) => {
   const { data: assignments } = await supabase
     .from('user_group_assignments')
@@ -70,7 +92,7 @@ export const sendNewSolicitationEmail = async (
   if (!profiles?.length) return;
 
   const emails = profiles.map(p => p.email);
-  const docList = areaDocs.map((d, i) => `${i + 1}. ${d.name}`).join('<br/>');
+  const docList = areaDocs.map((d, i) => `${i + 1}. ${escapeHtml(d.name)}`).join('<br/>');
 
   const body = `
     ${infoRow('Operação', operationName)}
@@ -78,9 +100,9 @@ export const sendNewSolicitationEmail = async (
     ${employeeRegistration ? infoRow('Matrícula', employeeRegistration) : ''}
     ${processNumber ? infoRow('Nº Processo', processNumber) : ''}
     ${deadline ? infoRow('Prazo fatal', new Date(deadline + 'T00:00:00').toLocaleDateString('pt-BR')) : ''}
-    ${observations ? `<div style="background:#fefce8;border-left:4px solid #eab308;padding:12px;margin:12px 0;border-radius:4px;font-size:14px;"><strong>Observações:</strong> ${observations}</div>` : ''}
+    ${observations ? `<div style="background:#fefce8;border-left:4px solid #eab308;padding:12px;margin:12px 0;border-radius:4px;font-size:14px;"><strong>Observações:</strong> ${escapeHtml(observations)}</div>` : ''}
     <div style="margin-top:16px;">
-      <p style="font-size:14px;font-weight:600;color:#1E3A5F;">Documentos solicitados para sua área (${areaName}):</p>
+      <p style="font-size:14px;font-weight:600;color:#1E3A5F;">Documentos solicitados para sua área (${escapeHtml(areaName)}):</p>
       <p style="font-size:14px;color:#374151;">${docList}</p>
     </div>
     ${linkButton(ticketLink(ticketId, solId, 'atendente'), 'Abrir solicitação')}
@@ -96,8 +118,8 @@ export const sendConclusionEmail = async (
   documents: { document_name: string; status: string }[]
 ) => {
   const docList = documents.map(d => {
-    const statusLabel = d.status === 'enviado' ? '✅ Enviado' : d.status === 'inexistente' ? '❌ Inexistente' : d.status;
-    return `<li style="margin:4px 0;">${d.document_name} — ${statusLabel}</li>`;
+    const statusLabel = d.status === 'enviado' ? '✅ Enviado' : d.status === 'inexistente' ? '❌ Inexistente' : escapeHtml(d.status);
+    return `<li style="margin:4px 0;">${escapeHtml(d.document_name)} — ${statusLabel}</li>`;
   }).join('');
 
   const body = `
@@ -136,7 +158,7 @@ export const sendRevisionEmail = async (
     ${infoRow('Funcionário', employeeName)}
     ${infoRow('Documento devolvido', docName)}
     <div style="background:#fff7ed;border-left:4px solid #f97316;padding:12px;margin:12px 0;border-radius:4px;font-size:14px;">
-      <strong>Motivo da devolutiva:</strong> ${reason}
+      <strong>Motivo da devolutiva:</strong> ${escapeHtml(reason)}
     </div>
     ${linkButton(ticketLink(ticketId, solId, 'atendente'), 'Abrir solicitação')}
   `;
@@ -153,8 +175,8 @@ export const sendCommentEmail = async (
   recipientRole: 'juridico' | 'atendente'
 ) => {
   const body = `
-    <p style="font-size:14px;color:#374151;"><strong>${authorName}</strong> comentou:</p>
-    <div style="background:#f3f4f6;padding:12px;border-radius:6px;margin:12px 0;font-size:14px;color:#374151;">${commentText}</div>
+    <p style="font-size:14px;color:#374151;"><strong>${escapeHtml(authorName)}</strong> comentou:</p>
+    <div style="background:#f3f4f6;padding:12px;border-radius:6px;margin:12px 0;font-size:14px;color:#374151;">${escapeHtml(commentText)}</div>
     ${linkButton(ticketLink(ticketId, solId, recipientRole), 'Abrir solicitação')}
   `;
 
@@ -173,7 +195,7 @@ export const sendCancelEmail = async (
     ${infoRow('Operação', operationName)}
     ${infoRow('Funcionário', employeeName)}
     <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:12px;margin:12px 0;border-radius:4px;font-size:14px;">
-      <strong>Motivo do cancelamento:</strong> ${cancelReason}
+      <strong>Motivo do cancelamento:</strong> ${escapeHtml(cancelReason)}
     </div>
   `;
 
@@ -201,13 +223,13 @@ export const sendReopenEmail = async (
   const { data: profiles } = await supabase.from('profiles').select('email').in('id', userIds);
   if (!profiles?.length) return;
 
-  const docList = areaDocs.map((d, i) => `${i + 1}. ${d.document_name}`).join('<br/>');
+  const docList = areaDocs.map((d, i) => `${i + 1}. ${escapeHtml(d.document_name)}`).join('<br/>');
 
   const body = `
     ${infoRow('Operação', operationName)}
     ${infoRow('Funcionário', employeeName)}
     <div style="background:#fefce8;border-left:4px solid #eab308;padding:12px;margin:12px 0;border-radius:4px;font-size:14px;">
-      <strong>Motivo da reabertura:</strong> ${reason}
+      <strong>Motivo da reabertura:</strong> ${escapeHtml(reason)}
     </div>
     <div style="margin-top:16px;">
       <p style="font-size:14px;font-weight:600;color:#1E3A5F;">Documentos da sua área:</p>

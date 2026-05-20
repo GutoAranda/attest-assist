@@ -10,19 +10,25 @@ export const useSessionTimeout = (onExpire: () => void, enabled: boolean) => {
   const idleTimer = useRef<ReturnType<typeof setTimeout>>();
   const expireTimer = useRef<ReturnType<typeof setTimeout>>();
   const tickTimer = useRef<ReturnType<typeof setInterval>>();
+  const warningRef = useRef(false);
+  // Hold latest onExpire in a ref so a stale closure doesn't fire an obsolete callback.
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
   const clearAll = useCallback(() => {
-    if (idleTimer.current) clearTimeout(idleTimer.current);
-    if (expireTimer.current) clearTimeout(expireTimer.current);
-    if (tickTimer.current) clearInterval(tickTimer.current);
+    if (idleTimer.current) { clearTimeout(idleTimer.current); idleTimer.current = undefined; }
+    if (expireTimer.current) { clearTimeout(expireTimer.current); expireTimer.current = undefined; }
+    if (tickTimer.current) { clearInterval(tickTimer.current); tickTimer.current = undefined; }
   }, []);
 
   const reset = useCallback(() => {
     clearAll();
+    warningRef.current = false;
     setWarning(false);
     setSecondsLeft(60);
     if (!enabled) return;
     idleTimer.current = setTimeout(() => {
+      warningRef.current = true;
       setWarning(true);
       setSecondsLeft(60);
       tickTimer.current = setInterval(() => {
@@ -30,11 +36,12 @@ export const useSessionTimeout = (onExpire: () => void, enabled: boolean) => {
       }, 1000);
       expireTimer.current = setTimeout(() => {
         clearAll();
+        warningRef.current = false;
         setWarning(false);
-        onExpire();
+        onExpireRef.current();
       }, WARNING_MS);
     }, IDLE_MS);
-  }, [enabled, onExpire, clearAll]);
+  }, [enabled, clearAll]);
 
   useEffect(() => {
     if (!enabled) {
@@ -43,7 +50,7 @@ export const useSessionTimeout = (onExpire: () => void, enabled: boolean) => {
     }
     reset();
     const handler = () => {
-      if (!warning) reset();
+      if (!warningRef.current) reset();
     };
     const events = ['mousedown', 'keydown', 'mousemove', 'touchstart', 'scroll'];
     events.forEach((e) => window.addEventListener(e, handler, { passive: true }));
@@ -51,8 +58,7 @@ export const useSessionTimeout = (onExpire: () => void, enabled: boolean) => {
       events.forEach((e) => window.removeEventListener(e, handler));
       clearAll();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled]);
+  }, [enabled, reset, clearAll]);
 
   const continueSession = useCallback(() => {
     reset();

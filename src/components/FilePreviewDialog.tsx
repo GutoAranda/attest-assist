@@ -14,8 +14,11 @@ const getExt = (name: string) => {
   return m ? m[1] : '';
 };
 
-const isImage = (ext: string) => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext);
+// SVG excluded from preview list — renders as <img> which can execute embedded scripts.
+// SVG users must download to view (browser sandbox protects).
+const isImage = (ext: string) => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext);
 const isPdf = (ext: string) => ext === 'pdf';
+const isSvg = (ext: string) => ext === 'svg';
 
 const triggerDownload = (fileUrl: string, fileName: string) => {
   const url = getPublicUrl(fileUrl);
@@ -44,9 +47,12 @@ export function FilePreviewDialog({ fileUrl, fileName, open, onOpenChange }: Fil
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-[95vw] h-[92vh] p-0 flex flex-col gap-0">
+      <DialogContent aria-labelledby="file-preview-title" className="max-w-[95vw] w-[95vw] h-[92vh] p-0 flex flex-col gap-0">
         <DialogHeader className="px-4 py-3 border-b flex-row items-center justify-between space-y-0">
-          <DialogTitle className="truncate pr-8 text-base">{fileName}</DialogTitle>
+          <DialogTitle id="file-preview-title" className="truncate pr-8 text-base">
+            {/* Use textContent semantics — React already escapes, but spell out for clarity */}
+            <span>{fileName}</span>
+          </DialogTitle>
           <div className="flex items-center gap-2 mr-6">
             <Button size="sm" variant="outline" onClick={() => triggerDownload(fileUrl, fileName)}>
               <Download className="h-4 w-4 mr-1" /> Baixar
@@ -55,7 +61,12 @@ export function FilePreviewDialog({ fileUrl, fileName, open, onOpenChange }: Fil
         </DialogHeader>
         <div className="flex-1 overflow-auto bg-muted/30 flex items-center justify-center">
           {pdf && (
-            <iframe src={publicUrl} title={fileName} className="w-full h-full border-0 bg-background" />
+            <iframe
+              src={publicUrl}
+              title={fileName}
+              sandbox="allow-same-origin allow-scripts"
+              className="w-full h-full border-0 bg-background"
+            />
           )}
           {img && (
             <img src={publicUrl} alt={fileName} className="max-w-full max-h-full object-contain" />

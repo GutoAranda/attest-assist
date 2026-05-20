@@ -1,10 +1,9 @@
 import { cn } from '@/lib/utils';
 
-type SolicitationStatus = 'rascunho' | 'aberto' | 'em_atendimento' | 'parcialmente_concluido' | 'concluido' | 'cancelado';
+type SolicitationStatus = 'aberto' | 'em_atendimento' | 'parcialmente_concluido' | 'concluido' | 'cancelado';
 type DocumentStatus = 'pendente' | 'enviado' | 'em_busca' | 'inexistente' | 'revisao_solicitada';
 
 const statusLabels: Record<SolicitationStatus, string> = {
-  rascunho: 'Rascunho',
   aberto: 'Aberto',
   em_atendimento: 'Em atendimento',
   parcialmente_concluido: 'Parcialmente concluído',
@@ -13,7 +12,6 @@ const statusLabels: Record<SolicitationStatus, string> = {
 };
 
 const statusStyles: Record<SolicitationStatus, string> = {
-  rascunho: 'bg-muted text-muted-foreground',
   aberto: 'bg-badge-open-bg text-badge-open-fg',
   em_atendimento: 'bg-badge-progress-bg text-badge-progress-fg',
   parcialmente_concluido: 'bg-badge-partial-bg text-badge-partial-fg',
@@ -50,11 +48,21 @@ export const DocStatusBadge = ({ status }: { status: DocumentStatus }) => {
   );
 };
 
+
 export const getDeadlineInfo = (deadline: string) => {
+  // Compara apenas as partes de ano/mês/dia (ignora timezone) para evitar discrepância
+  // entre dia local do usuário e dia UTC do prazo armazenado.
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(deadline + 'T00:00:00');
-  const diff = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const todayY = today.getFullYear(), todayM = today.getMonth(), todayD = today.getDate();
+
+  // deadline format: 'YYYY-MM-DD'
+  const [y, m, d] = deadline.split('-').map(Number);
+  if (!y || !m || !d) return { label: 'Data inválida', className: 'text-muted-foreground' };
+
+  // Calcula diferença em dias usando UTC para evitar problemas de DST
+  const todayUtc = Date.UTC(todayY, todayM, todayD);
+  const deadlineUtc = Date.UTC(y, m - 1, d);
+  const diff = Math.ceil((deadlineUtc - todayUtc) / (1000 * 60 * 60 * 24));
 
   if (diff < 0) return { label: `Vencido há ${Math.abs(diff)} dia(s)`, className: 'text-danger font-bold' };
   if (diff === 0) return { label: 'Vence hoje!', className: 'text-danger font-bold' };
