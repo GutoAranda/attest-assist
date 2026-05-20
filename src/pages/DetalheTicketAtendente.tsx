@@ -176,10 +176,24 @@ const DetalheTicketAtendente = () => {
   const saveDocChanges = async (doc: any) => {
     const state = docStates[doc.id];
     if (!state) return;
+    if (!profile || !id) throw new Error('Sessão inválida');
 
     const toastId = toast.loading('Atualizando documento...');
     try {
-      let fileUrl = doc.file_url;
+      // BUG FIX #5: Verifica que documento pertence à solicitação atual (evita cross-ticket injection)
+      const { data: freshDoc, error: docErr } = await supabase
+        .from('documents')
+        .select('id, solicitation_id, responsible_area_id, file_url, revision_reason')
+        .eq('id', doc.id)
+        .single();
+      if (docErr || !freshDoc) {
+        throw new Error('Documento não encontrado');
+      }
+      if (freshDoc.solicitation_id !== id) {
+        throw new Error('Documento não pertence a esta solicitação');
+      }
+
+      let fileUrl = freshDoc.file_url;
 
       if (state.file) {
         const path = `${id}/${doc.id}/${Date.now()}_${state.file.name}`;
@@ -187,29 +201,37 @@ const DetalheTicketAtendente = () => {
         if (upErr) throw upErr;
         fileUrl = buildStoragePublicUrl('solicitations', path);
 
-        await supabase.from('attachments').insert({
-          solicitation_id: id!,
+        const { error: attErr } = await supabase.from('attachments').insert({
+          solicitation_id: id,
           document_id: doc.id,
           file_name: state.file.name,
           file_url: fileUrl,
-          uploaded_by: profile!.id,
+          uploaded_by: profile.id,
         });
+        if (attErr) throw attErr;
       }
 
-      await supabase.from('documents').update({
+      const { error: docUpdateErr } = await supabase.from('documents').update({
         status: state.status,
         observations: state.observations || null,
-        file_url: state.status === 'enviado' ? fileUrl : doc.file_url,
-        revision_reason: state.status !== 'revisao_solicitada' ? null : doc.revision_reason,
+        file_url: state.status === 'enviado' ? fileUrl : freshDoc.file_url,
+        revision_reason: state.status !== 'revisao_solicitada' ? null : freshDoc.revision_reason,
       }).eq('id', doc.id);
+      if (docUpdateErr) throw docUpdateErr;
 
-      if (solicitation?.status === 'aberto') {
+      // BUG FIX #4: Só muda status para em_atendimento se ainda está aberto (evita sobrescrever reabertura)
+      const { data: currentSol } = await supabase
+        .from('solicitations')
+        .select('status')
+        .eq('id', id)
+        .single();
+      if (currentSol?.status === 'aberto') {
         await supabase.from('solicitations').update({ status: 'em_atendimento' }).eq('id', id);
       }
 
       await supabase.from('audit_logs').insert({
-        solicitation_id: id!,
-        user_id: profile!.id,
+        solicitation_id: id,
+        user_id: profile.id,
         action: `Documento atualizado`,
         details: `${doc.document_name}: status alterado para ${state.status}`,
       });
@@ -223,6 +245,7 @@ const DetalheTicketAtendente = () => {
     } catch (err: any) {
       toast.dismiss(toastId);
       toast.error('Erro: ' + err.message);
+      throw err; // Re-throw para handleConclude saber que falhou
     }
   };
 
@@ -255,6 +278,9 @@ const DetalheTicketAtendente = () => {
   };
 
   const handleConclude = async () => {
+    if (!profile || !id) return;
+
+    // Validação inicial dos documentos
     for (const doc of sortedDocs) {
       const state = docStates[doc.id] || { status: doc.status, observations: doc.observations };
       if (state.status === 'enviado' && !doc.file_url && !docStates[doc.id]?.file) {
@@ -274,48 +300,107 @@ const DetalheTicketAtendente = () => {
     setConcluding(true);
     const toastId = toast.loading('Salvando conclusão...');
     try {
-      for (const doc of sortedDocs) {
-        if (docStates[doc.id]) await saveDocChanges(doc);
+      // BUG FIX #4: Re-fetch status atual antes de operações (evita race com reabertura)
+      const { data: freshSol, error: freshSolErr } = await supabase
+        .from('solicitations')
+        .select('id, status, operation_id, requester_id, ticket_id')
+        .eq('id', id)
+        .single();
+      if (freshSolErr || !freshSol) throw new Error('Não foi possível verificar o estado atual da solicitação');
+      if (freshSol.status === 'cancelado' || freshSol.status === 'concluido') {
+        throw new Error(`Solicitação não pode ser concluída (status atual: ${freshSol.status})`);
       }
 
-      const myAreaIds = [...new Set(myAssignments.map(a => a.area_id))];
-      for (const areaId of myAreaIds) {
-        await supabase.from('area_conclusions').upsert({
-          solicitation_id: id!,
+      // BUG FIX #1: Re-validar permissões com dados frescos (evita race se admin removeu acesso)
+      const { data: freshAssignments, error: freshAssignErr } = await supabase
+        .from('user_group_assignments')
+        .select('area_id, operation_id')
+        .eq('user_id', profile.id)
+        .eq('operation_id', freshSol.operation_id);
+      if (freshAssignErr) throw freshAssignErr;
+      const freshAreaIds = [...new Set((freshAssignments || []).map((a: any) => a.area_id))];
+      if (freshAreaIds.length === 0) {
+        throw new Error('Você não tem mais permissão para concluir áreas desta solicitação');
+      }
+
+      // Verifica que só estamos tentando concluir documentos das áreas que ainda temos acesso
+      const allowedDocs = sortedDocs.filter((d: any) => freshAreaIds.includes(d.responsible_area_id));
+      if (allowedDocs.length === 0) {
+        throw new Error('Você não tem acesso aos documentos desta solicitação');
+      }
+
+      // BUG FIX #3: Salva documentos com tracking de progresso (para diagnóstico em caso de falha)
+      const savedDocs: string[] = [];
+      try {
+        for (const doc of allowedDocs) {
+          if (docStates[doc.id]) {
+            await saveDocChanges(doc);
+            savedDocs.push(doc.id);
+          }
+        }
+      } catch (saveErr: any) {
+        throw new Error(
+          `Erro ao salvar documentos (${savedDocs.length}/${allowedDocs.length} salvos). ` +
+          `Tente novamente. Detalhe: ${saveErr.message}`
+        );
+      }
+
+      // BUG FIX #1+#2: Upsert apenas áreas autorizadas (server RLS valida também)
+      for (const areaId of freshAreaIds) {
+        const { error: upsertErr } = await supabase.from('area_conclusions').upsert({
+          solicitation_id: id,
           area_id: areaId,
-          concluded_by: profile!.id,
+          concluded_by: profile.id,
         }, { onConflict: 'solicitation_id,area_id' });
+        if (upsertErr) {
+          throw new Error(`Erro ao marcar área como concluída: ${upsertErr.message}`);
+        }
       }
 
+      // Verifica se todas as áreas envolvidas concluíram
       const involvedAreaIds = [...new Set(allDocuments.map((d: any) => d.responsible_area_id))];
-      const { data: conclusions } = await supabase.from('area_conclusions').select('area_id').eq('solicitation_id', id!);
+      const { data: conclusions, error: concErr } = await supabase
+        .from('area_conclusions')
+        .select('area_id')
+        .eq('solicitation_id', id);
+      if (concErr) throw concErr;
       const concludedAreaIds = new Set((conclusions || []).map((c: any) => c.area_id));
       const allConcluded = involvedAreaIds.every(a => concludedAreaIds.has(a));
 
+      // BUG FIX #4: Re-checa que status não mudou enquanto operação rodava
+      const { data: currentSol } = await supabase
+        .from('solicitations')
+        .select('status')
+        .eq('id', id)
+        .single();
+      if (currentSol?.status === 'cancelado' || currentSol?.status === 'concluido') {
+        throw new Error(`Estado da solicitação mudou durante operação (${currentSol.status}). Atualize a página.`);
+      }
+
       const newStatus = allConcluded ? 'concluido' : 'parcialmente_concluido';
-      await supabase.from('solicitations').update({
+      const { error: solUpdateErr } = await supabase.from('solicitations').update({
         status: newStatus,
         ...(allConcluded ? { concluded_at: new Date().toISOString() } : {}),
       }).eq('id', id);
+      if (solUpdateErr) throw solUpdateErr;
 
       await supabase.from('audit_logs').insert({
-        solicitation_id: id!,
-        user_id: profile!.id,
+        solicitation_id: id,
+        user_id: profile.id,
         action: allConcluded ? 'Solicitação concluída' : 'Área concluída parcialmente',
-        details: `Concluído por ${profile!.name}`,
+        details: `Concluído por ${profile.name}`,
       });
 
-      if (allConcluded && solicitation?.requester_id) {
+      if (allConcluded && freshSol.requester_id) {
         await supabase.from('notifications').insert({
-          user_id: solicitation.requester_id,
+          user_id: freshSol.requester_id,
           type: 'conclusao',
-          message: `Solicitação ${solicitation.ticket_id} foi concluída`,
-          solicitation_id: id!,
+          message: `Solicitação ${freshSol.ticket_id} foi concluída`,
+          solicitation_id: id,
         });
-        // Send conclusion email
-        const requesterEmail = (solicitation.profiles as any)?.email;
+        const requesterEmail = (solicitation?.profiles as any)?.email;
         if (requesterEmail) {
-          await sendConclusionEmail(requesterEmail, id!, solicitation.ticket_id!, allDocuments.map((d: any) => ({ document_name: d.document_name, status: d.status })));
+          await sendConclusionEmail(requesterEmail, id, freshSol.ticket_id || '', allDocuments.map((d: any) => ({ document_name: d.document_name, status: d.status })));
         }
       }
 
